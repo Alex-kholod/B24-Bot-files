@@ -1,2 +1,6 @@
 /docs/
 /.superpowers/
+/vendor/
+/var/
+/config.php
+.phpunit.result.cache

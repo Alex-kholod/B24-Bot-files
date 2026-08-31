@@ -1,0 +1,23 @@
+<?php
+
+declare(strict_types=1);
+
+return [
+    'client_id' => 'local.xxxxxxxx',
+    'client_secret' => 'xxxxxxxx',
+    'scope' => 'imbot,imopenlines,im,task,crm,disk,user',
+
+    'bot_code' => 'ol_docs_bot',
+    'bot_name' => 'Документы клиента',
+    'bot_token' => 'change-me-max-40-chars',
+    'handler_url' => 'https://example.org/handler.php',
+
+    'default_responsible_id' => 1,
+    'task_group_id' => 0,
+    'checklist_title' => 'Документы от клиента',
+    'max_attempts' => 10,
+
+    'db_path' => __DIR__ . '/var/data/bot.sqlite',
+    'log_path' => __DIR__ . '/var/log',
+    'log_level' => 'info',
+];
