@@ -65,6 +65,17 @@ final class MessageHandler
 
     public function processRow(array $row, DateTimeImmutable $now): bool
     {
+        if (!$this->pending->claim($row['id'], $now)) {
+            // Строку уже забрал другой обработчик (параллельный вебхук или другой тик cron) —
+            // это не сбой этого файла, ничего не трогаем в Битрикс24. Возвращаем false, а не
+            // true: false здесь не значит "не получилось" в смысле markFailure, оно означает
+            // "не наша работа", и оно намеренно не даёт handle() пометить сообщение обработанным —
+            // владелец аренды доведёт строку до markDone/markFailure сам.
+            $this->logger->debug('Строка уже в обработке у другого воркера', ['pending_id' => $row['id']]);
+
+            return false;
+        }
+
         try {
             $client = $this->clients->resolve($row['chat_id']);
 
@@ -91,7 +102,8 @@ final class MessageHandler
                 $row['chat_id'],
                 $row['chat_file_id'],
                 (string) $row['file_name'],
-                $now
+                $now,
+                $row['id']
             );
 
             $this->pending->markDone($row['id'], $taskId, $now);

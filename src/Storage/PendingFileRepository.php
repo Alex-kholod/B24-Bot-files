@@ -71,6 +71,40 @@ final class PendingFileRepository
         return array_map($this->castRow(...), $statement->fetchAll());
     }
 
+    /**
+     * Захватывает строку в аренду на время обработки, чтобы вебхук и cron-тик не могли
+     * обработать одну и ту же запись параллельно. Никакого нового терминального статуса —
+     * аренда реализована сдвигом next_attempt_at в будущее: due()/этот метод отбирают только
+     * строки status = 'new' AND next_attempt_at <= now, поэтому арендованная строка на время
+     * аренды просто не попадает в выборку. Если процесс упадёт посреди обработки, аренда сама
+     * истечёт и строка снова станет доступна — без "зависших" строк и без потери документа.
+     *
+     * markFailure() всегда пересчитывает next_attempt_at из счётчика попыток заново, так что
+     * аренда никогда не принимается за интервал повторной попытки после сбоя.
+     *
+     * Возвращает true, если аренда захвачена именно этим вызовом (затронута ровно одна строка).
+     */
+    public function claim(int $id, DateTimeImmutable $now, int $leaseMinutes = 5): bool
+    {
+        $leaseUntil = $now->modify("+{$leaseMinutes} minutes");
+
+        $sql = <<<'SQL'
+            UPDATE pending_files
+            SET next_attempt_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'new' AND next_attempt_at <= ?
+            SQL;
+
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute([
+            $leaseUntil->format('Y-m-d H:i:s'),
+            $now->format('Y-m-d H:i:s'),
+            $id,
+            $now->format('Y-m-d H:i:s'),
+        ]);
+
+        return $statement->rowCount() === 1;
+    }
+
     public function markDone(int $id, int $taskId, DateTimeImmutable $now): void
     {
         $sql = 'UPDATE pending_files SET status = ?, task_id = ?, last_error = ?, updated_at = ? WHERE id = ?';

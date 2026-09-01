@@ -36,7 +36,7 @@ final class FileAttacherTest extends TestCase
 
     public function testSavesChatFileToDiskThenWritesChecklistItem(): void
     {
-        $this->attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now);
+        $this->attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now, 1);
 
         self::assertSame([[5, 77]], $this->api->savedFiles);
 
@@ -63,7 +63,7 @@ final class FileAttacherTest extends TestCase
             new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента')
         );
 
-        $attacher->attach('crm:CONTACT:123', 555, 5, 77, 'скан.jpg', $this->now);
+        $attacher->attach('crm:CONTACT:123', 555, 5, 77, 'скан.jpg', $this->now, 1);
 
         $item = end($api->addedChecklistItems)[1];
         self::assertStringContainsString('скан.jpg', $item['TITLE']);
@@ -75,7 +75,7 @@ final class FileAttacherTest extends TestCase
 
         $this->expectException(B24ApiException::class);
 
-        $this->attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now);
+        $this->attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now, 1);
     }
 
     public function testUsesSyntheticNameWhenBothNamesAreEmpty(): void
@@ -97,7 +97,7 @@ final class FileAttacherTest extends TestCase
             new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента')
         );
 
-        $attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now);
+        $attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now, 1);
 
         $item = end($api->addedChecklistItems)[1];
         self::assertStringContainsString('file-9077', $item['TITLE']);
@@ -122,7 +122,7 @@ final class FileAttacherTest extends TestCase
             new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента')
         );
 
-        $attacher->attach('crm:CONTACT:123', 555, 5, 77, 'важный_документ.pdf', $this->now);
+        $attacher->attach('crm:CONTACT:123', 555, 5, 77, 'важный_документ.pdf', $this->now, 1);
 
         $item = end($api->addedChecklistItems)[1];
         self::assertStringContainsString('важный_документ.pdf', $item['TITLE']);

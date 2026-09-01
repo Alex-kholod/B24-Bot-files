@@ -33,9 +33,9 @@ final class ChecklistWriterTest extends TestCase
         $this->now = new DateTimeImmutable('2026-08-31 12:30:00');
     }
 
-    private function write(): int
+    private function write(int $pendingId = 1): int
     {
-        return $this->writer->write('crm:CONTACT:123', 555, 9077, 'akt.pdf', 'https://disk/9077', $this->now);
+        return $this->writer->write('crm:CONTACT:123', 555, 9077, 'akt.pdf', 'https://disk/9077', $this->now, $pendingId);
     }
 
     public function testCreatesChecklistRootOnFirstWrite(): void
@@ -140,5 +140,69 @@ final class ChecklistWriterTest extends TestCase
 
         self::assertSame('0', $this->settings->get(ChecklistWriter::SETTING_KEY));
         self::assertSame([9077], $this->api->attachedFiles[555]);
+    }
+
+    public function testInterruptedFirstWriteFollowedByRetryResultsInExactlyOneCorrectlyTitledItem(): void
+    {
+        // Проба ещё не пройдена (флаг не известен), режим окажется "без вложений". Первый
+        // проход должен упасть ровно после того, как пункт чек-листа уже создан, но до того,
+        // как флаг поддержки и финальный заголовок зафиксированы — это и есть окно, в которое
+        // раньше терялась атомарность и появлялся дубль.
+        $api = new class extends FakeB24Api {
+            public bool $failNextAttach = true;
+
+            public function attachFilesToTask(int $taskId, array $diskFileIds): void
+            {
+                if ($this->failNextAttach) {
+                    $this->failNextAttach = false;
+
+                    throw new \B24DocsBot\Bitrix\B24ApiException('лимит', 'QUERY_LIMIT_EXCEEDED');
+                }
+
+                parent::attachFilesToTask($taskId, $diskFileIds);
+            }
+        };
+        $api->checklistAcceptsAttachments = false;
+
+        $db = new Database(':memory:');
+        $db->migrate();
+        $settings = new SettingsRepository($db->pdo());
+        $links = new TaskLinkRepository($db->pdo());
+        $links->save('crm:CONTACT:123', 'CONTACT', 123, 555);
+        $writer = new ChecklistWriter($api, $settings, $links, 'Документы от клиента');
+
+        $pendingId = 42;
+
+        try {
+            $writer->write('crm:CONTACT:123', 555, 9077, 'akt.pdf', 'https://disk/9077', $this->now, $pendingId);
+            self::fail('первая попытка должна была прерваться исключением');
+        } catch (\B24DocsBot\Bitrix\B24ApiException $exception) {
+            // ожидаемо — ровно то, что делает retry-очередь: помечает строку failed/new и повторяет позже.
+        }
+
+        // Создано ровно два пункта: корень чек-листа и сам пункт файла (голый заголовок, без
+        // ссылки) — второго пункта файла ещё нет.
+        self::assertCount(2, $api->addedChecklistItems);
+        $itemIdAfterFirstAttempt = array_key_last($api->checklistItems[555]);
+
+        // Повтор — как это сделал бы cron с той же строкой очереди (тот же pendingId).
+        $finalItemId = $writer->write('crm:CONTACT:123', 555, 9077, 'akt.pdf', 'https://disk/9077', $this->now, $pendingId);
+
+        self::assertCount(
+            2,
+            $api->addedChecklistItems,
+            'повтор не должен создавать ни второй корень, ни второй пункт чек-листа'
+        );
+        self::assertSame(
+            $itemIdAfterFirstAttempt,
+            $finalItemId,
+            'повтор дописывает тот же пункт, а не создаёт новый'
+        );
+        self::assertSame(
+            'akt.pdf — 31.08.2026 12:30 — https://disk/9077',
+            $api->getChecklistItem(555, $finalItemId)['TITLE'],
+            'после успешного повтора заголовок дополнен ссылкой, а не остаётся "голым"'
+        );
+        self::assertSame('0', $settings->get(ChecklistWriter::SETTING_KEY));
     }
 }

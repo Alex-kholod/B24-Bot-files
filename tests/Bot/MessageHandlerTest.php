@@ -197,4 +197,24 @@ final class MessageHandlerTest extends TestCase
         self::assertCount(1, $pending->due($this->now->modify('+1 minute')));
         self::assertFalse($processed->isProcessed(789), 'останется незакрытым, пока есть незавершённые файлы');
     }
+
+    public function testProcessRowDoesNotTouchBitrixWhenRowAlreadyClaimedByAnotherWorker(): void
+    {
+        // Симулируем гонку: вебхук и cron-тик читают одну и ту же строку. Второй воркер
+        // (в данном тесте — захват аренды напрямую) успевает первым.
+        $this->handler->handle($this->event(), $this->now);
+
+        // handle() уже обработал строку до конца (markDone), поэтому вручную создадим ситуацию
+        // "строка есть, но аренда уже занята" на новой независимой строке.
+        $rowId = $this->pending->enqueue(999, 5, 88, 'doc.pdf', $this->now);
+        $row = $this->pending->newForMessage(999)[0];
+
+        self::assertTrue($this->pending->claim($rowId, $this->now, 5), 'первый воркер захватывает строку');
+
+        $savedBefore = count($this->api->savedFiles);
+        $result = $this->handler->processRow($row, $this->now);
+
+        self::assertFalse($result, 'processRow не должен считать строку обработанной, если аренду держит другой воркер');
+        self::assertSame($savedBefore, count($this->api->savedFiles), 'Битрикс24 не должен вызываться повторно');
+    }
 }

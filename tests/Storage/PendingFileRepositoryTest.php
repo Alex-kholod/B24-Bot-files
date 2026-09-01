@@ -99,4 +99,49 @@ final class PendingFileRepositoryTest extends TestCase
         self::assertCount(1, $this->repository->due($this->now));
         self::assertSame(0, $this->repository->requeueFailed($this->now), 'строк в статусе failed не осталось');
     }
+
+    public function testClaimSucceedsAndRemovesRowFromDueUntilLeaseExpires(): void
+    {
+        $id = $this->repository->enqueue(789, 5, 77, 'act.pdf', $this->now);
+
+        self::assertTrue($this->repository->claim($id, $this->now, 5));
+        self::assertCount(0, $this->repository->due($this->now), 'арендованная строка не должна выдаваться снова');
+    }
+
+    public function testClaimFailsForRowAlreadyClaimedByAnotherWorker(): void
+    {
+        $id = $this->repository->enqueue(789, 5, 77, 'act.pdf', $this->now);
+
+        self::assertTrue($this->repository->claim($id, $this->now, 5), 'первый воркер захватывает строку');
+        self::assertFalse(
+            $this->repository->claim($id, $this->now, 5),
+            'второй воркер не должен получить ту же строку одновременно'
+        );
+    }
+
+    public function testExpiredLeaseReturnsRowToCirculation(): void
+    {
+        $id = $this->repository->enqueue(789, 5, 77, 'act.pdf', $this->now);
+
+        self::assertTrue($this->repository->claim($id, $this->now, 5));
+
+        $beforeExpiry = $this->now->modify('+4 minutes');
+        self::assertFalse($this->repository->claim($id, $beforeExpiry, 5), 'аренда ещё не истекла');
+        self::assertCount(0, $this->repository->due($beforeExpiry));
+
+        $afterExpiry = $this->now->modify('+5 minutes');
+        self::assertCount(1, $this->repository->due($afterExpiry), 'аренда истекла — строка снова доступна');
+        self::assertTrue(
+            $this->repository->claim($id, $afterExpiry, 5),
+            'после истечения аренды строку может забрать любой воркер (например, упавший процесс сам её отпустил)'
+        );
+    }
+
+    public function testClaimFailsForRowThatIsNotNew(): void
+    {
+        $id = $this->repository->enqueue(789, 5, 77, 'act.pdf', $this->now);
+        $this->repository->markDone($id, 555, $this->now);
+
+        self::assertFalse($this->repository->claim($id, $this->now, 5), 'завершённую строку захватить нельзя');
+    }
 }

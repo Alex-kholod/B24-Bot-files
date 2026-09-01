@@ -21,7 +21,8 @@ final class FileAttacher
         int $chatId,
         int $chatFileId,
         string $fallbackName,
-        DateTimeImmutable $now
+        DateTimeImmutable $now,
+        int $pendingId
     ): void {
         $diskFileId = $this->api->saveChatFileToDisk($chatId, $chatFileId);
         $file = $this->api->getDiskFile($diskFileId);
@@ -37,7 +38,8 @@ final class FileAttacher
             $diskFileId,
             $name,
             (string) ($file['DOWNLOAD_URL'] ?? ''),
-            $now
+            $now,
+            $pendingId
         );
     }
 }

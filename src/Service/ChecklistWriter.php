@@ -34,15 +34,25 @@ final class ChecklistWriter
         int $diskFileId,
         string $fileName,
         string $downloadUrl,
-        DateTimeImmutable $now
+        DateTimeImmutable $now,
+        int $pendingId
     ): int {
         $rootId = $this->checklistRootId($clientKey, $taskId);
         $label = sprintf('%s — %s', $fileName, $now->format('d.m.Y H:i'));
 
+        // Незавершённая проба для этой же строки очереди имеет приоритет перед сохранённым
+        // флагом поддержки вложений: флаг мог быть закоммичен ДО того, как оборвался предыдущий
+        // проход probeAndWrite() (он пишет флаг раньше, чем делает последние вызовы API), поэтому
+        // одного лишь "флаг уже известен" недостаточно — нужно доиграть именно ту пробу, которая
+        // осталась недоделанной, а не пойти по общей ветке и создать второй пункт.
+        if ($this->settings->get(self::probeStateKey($pendingId)) !== null) {
+            return $this->probeAndWrite($taskId, $rootId, $label, $diskFileId, $downloadUrl, $pendingId);
+        }
+
         $supported = $this->attachmentsSupported();
 
         if ($supported === null) {
-            return $this->probeAndWrite($taskId, $rootId, $label, $diskFileId, $downloadUrl);
+            return $this->probeAndWrite($taskId, $rootId, $label, $diskFileId, $downloadUrl, $pendingId);
         }
 
         return $supported
@@ -50,18 +60,41 @@ final class ChecklistWriter
             : $this->writeWithLink($taskId, $rootId, $label, $diskFileId, $downloadUrl);
     }
 
+    /**
+     * Первая в жизни портала запись (флаг поддержки вложений ещё не известен) состоит из
+     * нескольких вызовов API. Если процесс упадёт между созданием пункта и завершением пробы —
+     * сеть, лимит запроса — строка вернётся в очередь и попадёт сюда снова; без этой защиты
+     * повтор создал бы ВТОРОЙ пункт чек-листа, а первый остался бы висеть с "голым" заголовком
+     * без ссылки на файл. Поэтому идентификатор созданного пункта сохраняется в SettingsRepository
+     * до последующих вызовов под ключом, привязанным к pendingId — идентификатору строки очереди
+     * pending_files. pendingId уникален на файл (PendingFileRepository::enqueue уникализирует
+     * по паре message_id+chat_file_id), поэтому два разных файла, летящих одновременно, пишут в
+     * разные ключи настроек и не пересекаются; на повторной попытке этой же строки читается уже
+     * сохранённый itemId вместо создания нового пункта. Ключ подчищается по завершении.
+     */
     private function probeAndWrite(
         int $taskId,
         int $rootId,
         string $label,
         int $diskFileId,
-        string $downloadUrl
+        string $downloadUrl,
+        int $pendingId
     ): int {
-        $itemId = $this->writeWithAttachment($taskId, $rootId, $label, $diskFileId);
+        $stateKey = self::probeStateKey($pendingId);
+        $existingItemId = $this->settings->get($stateKey);
+
+        if ($existingItemId !== null) {
+            $itemId = (int) $existingItemId;
+        } else {
+            $itemId = $this->writeWithAttachment($taskId, $rootId, $label, $diskFileId);
+            $this->settings->set($stateKey, (string) $itemId);
+        }
+
         $item = $this->api->getChecklistItem($taskId, $itemId);
 
         if ($this->hasAttachment($item, $diskFileId)) {
             $this->settings->set(self::SETTING_KEY, '1');
+            $this->settings->delete($stateKey);
 
             return $itemId;
         }
@@ -69,8 +102,14 @@ final class ChecklistWriter
         $this->settings->set(self::SETTING_KEY, '0');
         $this->api->attachFilesToTask($taskId, [$diskFileId]);
         $this->api->updateChecklistItem($taskId, $itemId, ['TITLE' => $label . ' — ' . $downloadUrl]);
+        $this->settings->delete($stateKey);
 
         return $itemId;
+    }
+
+    private static function probeStateKey(int $pendingId): string
+    {
+        return 'checklist_probe_item:' . $pendingId;
     }
 
     private function writeWithAttachment(int $taskId, int $rootId, string $label, int $diskFileId): int
