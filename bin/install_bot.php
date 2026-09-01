@@ -7,8 +7,15 @@ require __DIR__ . '/../vendor/autoload.php';
 use B24DocsBot\Application;
 use B24DocsBot\Config;
 
-$config = Config::fromFile(__DIR__ . '/../config.php');
-$app = new Application($config);
+// Конфигурация и сборка приложения тоже могут упасть (нет config.php, нет прав на var/),
+// и без этой границы скрипт вывалился бы трассировкой с кодом 255 вместо внятной ошибки.
+try {
+    $config = Config::fromFile(__DIR__ . '/../config.php');
+    $app = new Application($config);
+} catch (Throwable $exception) {
+    fwrite(STDERR, $exception::class . ': ' . $exception->getMessage() . "\n");
+    exit(1);
+}
 
 $portal = $app->tokens()->find();
 

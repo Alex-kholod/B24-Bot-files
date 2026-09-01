@@ -8,8 +8,16 @@ use B24DocsBot\Application;
 use B24DocsBot\Config;
 use B24DocsBot\Service\ChecklistWriter;
 
-$config = Config::fromFile(__DIR__ . '/../config.php');
-$app = new Application($config);
+// Это скрипт, который запускают, когда что-то сломано, поэтому первая же проверка
+// обязана сообщать о проблеме внятно, а не падать трассировкой с кодом 255.
+try {
+    $config = Config::fromFile(__DIR__ . '/../config.php');
+    $app = new Application($config);
+} catch (Throwable $exception) {
+    fwrite(STDERR, '1. Конфигурация не читается или приложение не собирается: '
+        . $exception::class . ': ' . $exception->getMessage() . "\n");
+    exit(1);
+}
 
 echo "1. Конфигурация прочитана, обязательные значения на месте.\n";
 
