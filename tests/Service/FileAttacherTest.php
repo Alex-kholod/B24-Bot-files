@@ -77,4 +77,54 @@ final class FileAttacherTest extends TestCase
 
         $this->attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now);
     }
+
+    public function testUsesSyntheticNameWhenBothNamesAreEmpty(): void
+    {
+        $api = new class extends FakeB24Api {
+            public function getDiskFile(int $diskFileId): array
+            {
+                return ['ID' => $diskFileId, 'NAME' => '', 'DOWNLOAD_URL' => ''];
+            }
+        };
+
+        $db = new Database(':memory:');
+        $db->migrate();
+        $links = new TaskLinkRepository($db->pdo());
+        $links->save('crm:CONTACT:123', 'CONTACT', 123, 555);
+
+        $attacher = new FileAttacher(
+            $api,
+            new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента')
+        );
+
+        $attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now);
+
+        $item = end($api->addedChecklistItems)[1];
+        self::assertStringContainsString('file-9077', $item['TITLE']);
+    }
+
+    public function testTrimsWhitespaceFromDiskName(): void
+    {
+        $api = new class extends FakeB24Api {
+            public function getDiskFile(int $diskFileId): array
+            {
+                return ['ID' => $diskFileId, 'NAME' => '   ', 'DOWNLOAD_URL' => ''];
+            }
+        };
+
+        $db = new Database(':memory:');
+        $db->migrate();
+        $links = new TaskLinkRepository($db->pdo());
+        $links->save('crm:CONTACT:123', 'CONTACT', 123, 555);
+
+        $attacher = new FileAttacher(
+            $api,
+            new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента')
+        );
+
+        $attacher->attach('crm:CONTACT:123', 555, 5, 77, 'важный_документ.pdf', $this->now);
+
+        $item = end($api->addedChecklistItems)[1];
+        self::assertStringContainsString('важный_документ.pdf', $item['TITLE']);
+    }
 }
