@@ -4,3 +4,4 @@
 /var/
 /config.php
 .phpunit.result.cache
+/.idea/
