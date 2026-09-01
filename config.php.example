@@ -5,7 +5,15 @@ declare(strict_types=1);
 return [
     'client_id' => 'local.xxxxxxxx',
     'client_secret' => 'xxxxxxxx',
-    'scope' => 'imbot,imopenlines,im,task,crm,disk,user',
+    // Опционально. https://oauth.bitrix24.tech/ — сервер OAuth для восточного региона,
+    // используется порталами .bitrix24.ru и соответствует server_endpoint, который
+    // возвращает сам Битрикс24. Для западных порталов .bitrix24.com используйте
+    // https://oauth.bitrix.info/. Пустая строка активирует встроенное значение по умолчанию SDK
+    // (западный сервер), что приведет к отказу при обновлении токенов портала .bitrix24.ru.
+    'oauth_server_url' => 'https://oauth.bitrix24.tech/',
+    // Битрикс24 использует две разные области доступа для задач: "task" для старого API
+    // и "tasks" для REST 3.0. Обе обязательны и одна не заменяет другую.
+    'scope' => 'imbot,imopenlines,im,task,tasks,crm,disk,user',
 
     'bot_code' => 'ol_docs_bot',
     'bot_name' => 'Документы клиента',
