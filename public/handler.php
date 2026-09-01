@@ -10,9 +10,12 @@ use B24DocsBot\Config;
 try {
     $app = new Application(Config::fromFile(__DIR__ . '/../config.php'));
 } catch (Throwable $exception) {
+    // Приложение не поднялось — очередь недоступна, поэтому обычное правило
+    // "всегда 200" здесь не действует: запросить повтор доставки, кроме
+    // Битрикс24, некому. Отдаём 503 с Retry-After, чтобы повтор пришёл сам.
     error_log('b24-docs-bot handler.php: ' . $exception::class . ': ' . $exception->getMessage());
-    http_response_code(200);
-    echo 'OK';
+    http_response_code(503);
+    header('Retry-After: 60');
     exit;
 }
 
