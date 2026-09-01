@@ -54,9 +54,9 @@ try {
     $error = $exception->getMessage();
 
     if ($tokensSaved) {
-        $app->logger()->error('Не удалось зарегистрировать бота', ['error' => $error]);
+        $app->logger()->error('Не удалось зарегистрировать бота', ['exception' => $exception::class, 'error' => $error]);
     } else {
-        $app->logger()->error('Не удалось сохранить токены авторизации портала', ['error' => $error]);
+        $app->logger()->error('Не удалось сохранить токены авторизации портала', ['exception' => $exception::class, 'error' => $error]);
     }
 }
 
