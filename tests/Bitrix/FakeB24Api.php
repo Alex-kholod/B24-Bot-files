@@ -19,8 +19,8 @@ class FakeB24Api implements B24Api
     public array $addedTasks = [];
     public array $attachedFiles = [];        // taskId => [diskFileId, ...]
     public array $addedChecklistItems = [];  // [taskId, fields]
-    public array $savedFiles = [];           // [chatId, chatFileId]
-    public ?B24ApiException $throwOnSaveFile = null;
+    public array $fetchedDiskFiles = [];     // diskFileId, ...
+    public ?B24ApiException $throwOnGetDiskFile = null;
     public ?B24ApiException $throwOnDialog = null;
     public ?B24ApiException $throwOnChecklistAttachment = null;
     private int $nextId = 1000;
@@ -39,19 +39,14 @@ class FakeB24Api implements B24Api
         return $this->crmEntities["{$entityType}:{$entityId}"] ?? null;
     }
 
-    public function saveChatFileToDisk(int $chatId, int $chatFileId): int
-    {
-        if ($this->throwOnSaveFile !== null) {
-            throw $this->throwOnSaveFile;
-        }
-
-        $this->savedFiles[] = [$chatId, $chatFileId];
-
-        return 9000 + $chatFileId;
-    }
-
     public function getDiskFile(int $diskFileId): array
     {
+        $this->fetchedDiskFiles[] = $diskFileId;
+
+        if ($this->throwOnGetDiskFile !== null) {
+            throw $this->throwOnGetDiskFile;
+        }
+
         return ['ID' => $diskFileId, 'NAME' => "file-{$diskFileId}.pdf", 'DOWNLOAD_URL' => "https://disk/{$diskFileId}"];
     }
 

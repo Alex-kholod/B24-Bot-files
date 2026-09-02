@@ -34,14 +34,16 @@ final class FileAttacherTest extends TestCase
         $this->now = new DateTimeImmutable('2026-08-31 12:30:00');
     }
 
-    public function testSavesChatFileToDiskThenWritesChecklistItem(): void
+    public function testUsesChatFileIdDirectlyAsDiskFileIdThenWritesChecklistItem(): void
     {
-        $this->attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now, 1);
+        // chat_file_id из события — уже готовый id объекта Диска, отдельного шага
+        // "сохранить на Диск" не требуется (см. комментарий в FileAttacher::attach).
+        $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now, 1);
 
-        self::assertSame([[5, 77]], $this->api->savedFiles);
+        self::assertSame([77], $this->api->fetchedDiskFiles);
 
         $item = end($this->api->addedChecklistItems)[1];
-        self::assertStringContainsString('file-9077.pdf', $item['TITLE']);
+        self::assertStringContainsString('file-77.pdf', $item['TITLE']);
     }
 
     public function testUsesFallbackNameWhenDiskFileHasNoName(): void
@@ -63,7 +65,7 @@ final class FileAttacherTest extends TestCase
             new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента')
         );
 
-        $attacher->attach('crm:CONTACT:123', 555, 5, 77, 'скан.jpg', $this->now, 1);
+        $attacher->attach('crm:CONTACT:123', 555, 77, 'скан.jpg', $this->now, 1);
 
         $item = end($api->addedChecklistItems)[1];
         self::assertStringContainsString('скан.jpg', $item['TITLE']);
@@ -71,11 +73,11 @@ final class FileAttacherTest extends TestCase
 
     public function testPropagatesApiException(): void
     {
-        $this->api->throwOnSaveFile = new B24ApiException('лимит', 'QUERY_LIMIT_EXCEEDED');
+        $this->api->throwOnGetDiskFile = new B24ApiException('лимит', 'QUERY_LIMIT_EXCEEDED');
 
         $this->expectException(B24ApiException::class);
 
-        $this->attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now, 1);
+        $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now, 1);
     }
 
     public function testUsesSyntheticNameWhenBothNamesAreEmpty(): void
@@ -97,10 +99,10 @@ final class FileAttacherTest extends TestCase
             new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента')
         );
 
-        $attacher->attach('crm:CONTACT:123', 555, 5, 77, '', $this->now, 1);
+        $attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now, 1);
 
         $item = end($api->addedChecklistItems)[1];
-        self::assertStringContainsString('file-9077', $item['TITLE']);
+        self::assertStringContainsString('file-77', $item['TITLE']);
     }
 
     public function testTrimsWhitespaceFromDiskName(): void
@@ -122,7 +124,7 @@ final class FileAttacherTest extends TestCase
             new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента')
         );
 
-        $attacher->attach('crm:CONTACT:123', 555, 5, 77, 'важный_документ.pdf', $this->now, 1);
+        $attacher->attach('crm:CONTACT:123', 555, 77, 'важный_документ.pdf', $this->now, 1);
 
         $item = end($api->addedChecklistItems)[1];
         self::assertStringContainsString('важный_документ.pdf', $item['TITLE']);

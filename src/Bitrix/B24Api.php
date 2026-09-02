@@ -19,9 +19,6 @@ interface B24Api
     /** Элемент CRM или null, если не найден. Возвращает как минимум ключи ID, TITLE, ASSIGNED_BY_ID. */
     public function getCrmEntity(string $entityType, int $entityId): ?array;
 
-    /** Сохраняет файл чата на Диск и возвращает идентификатор объекта Диска. */
-    public function saveChatFileToDisk(int $chatId, int $chatFileId): int;
-
     /** Данные файла Диска: как минимум NAME и DOWNLOAD_URL. */
     public function getDiskFile(int $diskFileId): array;
 

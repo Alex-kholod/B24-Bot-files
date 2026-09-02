@@ -99,7 +99,6 @@ final class MessageHandler
             $this->attacher->attach(
                 $client->clientKey(),
                 $taskId,
-                $row['chat_id'],
                 $row['chat_file_id'],
                 (string) $row['file_name'],
                 $now,

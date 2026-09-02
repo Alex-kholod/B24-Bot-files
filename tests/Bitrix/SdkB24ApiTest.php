@@ -58,21 +58,6 @@ final class SdkB24ApiTest extends TestCase
         self::assertSame(475, $api->addChecklistItem(13, ['TITLE' => 'x']));
     }
 
-    public function testSaveChatFileToDiskReadsNestedFileId(): void
-    {
-        $api = $this->apiReturning(['folder' => ['id' => 5], 'file' => ['id' => 9043, 'name' => 'a.pdf']]);
-
-        self::assertSame(9043, $api->saveChatFileToDisk(11, 5155));
-    }
-
-    public function testSaveChatFileToDiskFailsOnUnexpectedAnswer(): void
-    {
-        $api = $this->apiReturning(['folder' => ['id' => 5]]);
-
-        $this->expectException(B24ApiException::class);
-        $api->saveChatFileToDisk(11, 5155);
-    }
-
     public function testRegisterBotReadsBotId(): void
     {
         $api = $this->apiReturning(['bot' => ['id' => 321], 'users' => []]);

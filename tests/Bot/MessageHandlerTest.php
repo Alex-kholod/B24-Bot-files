@@ -79,7 +79,7 @@ final class MessageHandlerTest extends TestCase
     {
         $this->handler->handle($this->event(), $this->now);
 
-        self::assertSame([[5, 77]], $this->api->savedFiles);
+        self::assertSame([77], $this->api->fetchedDiskFiles);
         self::assertTrue($this->processed->isProcessed(789));
         self::assertCount(0, $this->pending->due($this->now));
     }
@@ -88,7 +88,7 @@ final class MessageHandlerTest extends TestCase
     {
         $this->handler->handle($this->event(['authorIsBot' => true]), $this->now);
 
-        self::assertSame([], $this->api->savedFiles);
+        self::assertSame([], $this->api->fetchedDiskFiles);
         self::assertFalse($this->processed->isProcessed(789));
     }
 
@@ -96,14 +96,14 @@ final class MessageHandlerTest extends TestCase
     {
         $this->handler->handle($this->event(['chatEntityType' => '']), $this->now);
 
-        self::assertSame([], $this->api->savedFiles);
+        self::assertSame([], $this->api->fetchedDiskFiles);
     }
 
     public function testIgnoresMessagesWithoutFiles(): void
     {
         $this->handler->handle($this->event(['fileIds' => []]), $this->now);
 
-        self::assertSame([], $this->api->savedFiles);
+        self::assertSame([], $this->api->fetchedDiskFiles);
         self::assertFalse($this->processed->isProcessed(789));
     }
 
@@ -112,7 +112,7 @@ final class MessageHandlerTest extends TestCase
         $this->handler->handle($this->event(), $this->now);
         $this->handler->handle($this->event(), $this->now);
 
-        self::assertCount(1, $this->api->savedFiles);
+        self::assertCount(1, $this->api->fetchedDiskFiles);
         self::assertCount(1, $this->api->addedTasks);
     }
 
@@ -132,7 +132,7 @@ final class MessageHandlerTest extends TestCase
 
         $this->handler->handle($this->event(), $this->now);
 
-        self::assertSame([], $this->api->savedFiles);
+        self::assertSame([], $this->api->fetchedDiskFiles);
         self::assertCount(1, $this->pending->due($this->now->modify('+1 minute')));
         self::assertFalse($this->processed->isProcessed(789));
     }
@@ -149,7 +149,7 @@ final class MessageHandlerTest extends TestCase
             self::assertTrue($this->handler->processRow($row, $later));
         }
 
-        self::assertSame([[5, 77]], $this->api->savedFiles);
+        self::assertSame([77], $this->api->fetchedDiskFiles);
         self::assertCount(0, $this->pending->due($later));
     }
 
@@ -157,20 +157,20 @@ final class MessageHandlerTest extends TestCase
     {
         $this->handler->handle($this->event(['fileIds' => [77, 78]]), $this->now);
 
-        self::assertSame([[5, 77], [5, 78]], $this->api->savedFiles);
+        self::assertSame([77, 78], $this->api->fetchedDiskFiles);
         self::assertCount(1, $this->api->addedTasks, 'задача создаётся один раз на сообщение');
     }
 
     public function testFailureOfOneFileDoesNotBlockAnother(): void
     {
         $api = new class extends FakeB24Api {
-            public function saveChatFileToDisk(int $chatId, int $chatFileId): int
+            public function getDiskFile(int $diskFileId): array
             {
-                if ($chatFileId === 77) {
+                if ($diskFileId === 77) {
                     throw new B24ApiException('лимит', 'QUERY_LIMIT_EXCEEDED');
                 }
 
-                return parent::saveChatFileToDisk($chatId, $chatFileId);
+                return parent::getDiskFile($diskFileId);
             }
         };
         $api->dialogs[5] = ['crm_entity_type' => 'CONTACT', 'crm_entity_id' => '123'];
@@ -193,7 +193,7 @@ final class MessageHandlerTest extends TestCase
 
         $handler->handle($this->event(['fileIds' => [77, 78]]), $this->now);
 
-        self::assertSame([[5, 78]], $api->savedFiles);
+        self::assertSame([78], $api->fetchedDiskFiles);
         self::assertCount(1, $pending->due($this->now->modify('+1 minute')));
         self::assertFalse($processed->isProcessed(789), 'останется незакрытым, пока есть незавершённые файлы');
     }
@@ -211,10 +211,10 @@ final class MessageHandlerTest extends TestCase
 
         self::assertTrue($this->pending->claim($rowId, $this->now, 5), 'первый воркер захватывает строку');
 
-        $savedBefore = count($this->api->savedFiles);
+        $savedBefore = count($this->api->fetchedDiskFiles);
         $result = $this->handler->processRow($row, $this->now);
 
         self::assertFalse($result, 'processRow не должен считать строку обработанной, если аренду держит другой воркер');
-        self::assertSame($savedBefore, count($this->api->savedFiles), 'Битрикс24 не должен вызываться повторно');
+        self::assertSame($savedBefore, count($this->api->fetchedDiskFiles), 'Битрикс24 не должен вызываться повторно');
     }
 }

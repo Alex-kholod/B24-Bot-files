@@ -108,22 +108,6 @@ final class SdkB24Api implements B24Api
         return $entity;
     }
 
-    public function saveChatFileToDisk(int $chatId, int $chatFileId): int
-    {
-        // У im.disk.file.save единственный параметр — FILE_ID; идентификатор чата
-        // в сигнатуре порта остаётся как контекст вызывающего кода.
-        $result = $this->call('im.disk.file.save', ['FILE_ID' => $chatFileId]);
-
-        $file = (array) ($result['file'] ?? []);
-        $diskFileId = (int) ($file['id'] ?? $file['ID'] ?? 0);
-
-        if ($diskFileId <= 0) {
-            throw new B24ApiException('Не удалось сохранить файл чата на Диск', 'ERROR_UNEXPECTED_ANSWER');
-        }
-
-        return $diskFileId;
-    }
-
     public function getDiskFile(int $diskFileId): array
     {
         return $this->call('disk.file.get', ['id' => $diskFileId]);
