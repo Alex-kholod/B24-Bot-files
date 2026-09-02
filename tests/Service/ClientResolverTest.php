@@ -88,4 +88,58 @@ final class ClientResolverTest extends TestCase
 
         self::assertSame('crm:CONTACT:55', $this->resolver->resolve(5)->clientKey());
     }
+
+    public function testParsesRealPortalEntityDataWhenDocumentedFieldsAreAbsent(): void
+    {
+        // imopenlines.dialog.get на живом портале не отдаёт crm_entity_type/crm_entity_id
+        // вовсе — только недокументированное entity_data_2 с этим форматом. Снято на
+        // реальном чате открытой линии, где привязаны и контакт, и сделка.
+        $this->api->dialogs[5] = [
+            'entity_type' => 'LINES',
+            'entity_data_2' => 'LEAD|0|COMPANY|0|CONTACT|5323|DEAL|5541',
+        ];
+        $this->api->crmEntities['CONTACT:5323'] = ['ID' => 5323, 'TITLE' => 'Алексей'];
+
+        $client = $this->resolver->resolve(5);
+
+        self::assertNotNull($client);
+        self::assertSame('CONTACT', $client->crmEntityType);
+        self::assertSame(5323, $client->crmEntityId);
+    }
+
+    public function testPrefersContactOverDealWhenBothBoundViaEntityData(): void
+    {
+        $this->api->dialogs[5] = ['entity_data_2' => 'LEAD|0|COMPANY|0|CONTACT|5323|DEAL|5541'];
+        $this->api->crmEntities['CONTACT:5323'] = ['ID' => 5323, 'TITLE' => 'Алексей'];
+        $this->api->crmEntities['DEAL:5541'] = ['ID' => 5541, 'TITLE' => 'Сделка'];
+
+        self::assertSame('CONTACT', $this->resolver->resolve(5)->crmEntityType);
+    }
+
+    public function testFallsBackToDealWhenOnlyDealBoundViaEntityData(): void
+    {
+        $this->api->dialogs[5] = ['entity_data_2' => 'LEAD|0|COMPANY|0|CONTACT|0|DEAL|5541'];
+        $this->api->crmEntities['DEAL:5541'] = ['ID' => 5541, 'TITLE' => 'Сделка'];
+
+        self::assertSame('DEAL', $this->resolver->resolve(5)->crmEntityType);
+    }
+
+    public function testDocumentedFieldsTakePriorityOverEntityData(): void
+    {
+        $this->api->dialogs[5] = [
+            'crm_entity_type' => 'LEAD',
+            'crm_entity_id' => '1',
+            'entity_data_2' => 'LEAD|0|COMPANY|0|CONTACT|5323|DEAL|5541',
+        ];
+        $this->api->crmEntities['LEAD:1'] = ['ID' => 1, 'TITLE' => 'X'];
+
+        self::assertSame('LEAD', $this->resolver->resolve(5)->crmEntityType);
+    }
+
+    public function testReturnsNullWhenEntityDataHasNoBoundEntities(): void
+    {
+        $this->api->dialogs[5] = ['entity_data_2' => 'LEAD|0|COMPANY|0|CONTACT|0|DEAL|0'];
+
+        self::assertNull($this->resolver->resolve(5));
+    }
 }
