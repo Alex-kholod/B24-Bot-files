@@ -111,6 +111,36 @@ final class SdkB24ApiTest extends TestCase
         self::assertNull($api->getCrmEntity('INVOICE', 3));
     }
 
+    public function testAttachFilesToTaskCallsLegacyMethodOncePerFileWithSingularFileId(): void
+    {
+        // tasks.task.file.attach (REST 3.0, множественный fileIds) отсутствует на части
+        // порталов ("api method not found") — REST 3.0 для задач там не включён. Используем
+        // tasks.task.files.attach: он принимает ровно один fileId за вызов, не массив.
+        $calls = [];
+
+        $responseData = $this->createMock(ResponseData::class);
+        $responseData->method('getResult')->willReturn(['attachmentId' => 1]);
+
+        $response = $this->createMock(Response::class);
+        $response->method('getResponseData')->willReturn($responseData);
+
+        $core = $this->createMock(CoreInterface::class);
+        $core->method('call')
+            ->willReturnCallback(function (string $method, array $params) use (&$calls, $response): Response {
+                $calls[] = [$method, $params];
+
+                return $response;
+            });
+
+        $api = new SdkB24Api($this->serviceBuilderWith($core));
+        $api->attachFilesToTask(13, [101, 102]);
+
+        self::assertSame([
+            ['tasks.task.files.attach', ['taskId' => 13, 'fileId' => 101]],
+            ['tasks.task.files.attach', ['taskId' => 13, 'fileId' => 102]],
+        ], $calls);
+    }
+
     private function apiReturning(array $result): SdkB24Api
     {
         $responseData = $this->createMock(ResponseData::class);

@@ -190,7 +190,14 @@ final class SdkB24Api implements B24Api
 
     public function attachFilesToTask(int $taskId, array $diskFileIds): void
     {
-        $this->call('tasks.task.file.attach', ['taskId' => $taskId, 'fileIds' => array_values($diskFileIds)]);
+        // tasks.task.file.attach (REST 3.0, множественный fileIds) на части порталов
+        // не существует ("api method not found") — REST 3.0 для задач включён не везде.
+        // Используем старый, универсально доступный tasks.task.files.attach: он
+        // прикрепляет только один файл за вызов (параметр fileId, не массив), поэтому
+        // зовём его в цикле.
+        foreach ($diskFileIds as $diskFileId) {
+            $this->call('tasks.task.files.attach', ['taskId' => $taskId, 'fileId' => $diskFileId]);
+        }
     }
 
     public function addChecklistItem(int $taskId, array $fields): int
