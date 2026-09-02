@@ -109,8 +109,8 @@ ufw enable
 ## Шаг 3а. PHP 8.4 (Debian 13)
 
 ```bash
-sudo apt install -y php8.4-fpm php8.4-cli php8.4-curl php8.4-intl php8.4-sqlite3 \
-                    php8.4-mbstring php8.4-xml
+sudo apt install -y php8.4-fpm php8.4-cli php8.4-bcmath php8.4-curl php8.4-intl \
+                    php8.4-sqlite3 php8.4-mbstring php8.4-xml
 ```
 
 ## Шаг 3б. PHP 8.4 (Ubuntu 24.04 LTS)
@@ -119,21 +119,24 @@ sudo apt install -y php8.4-fpm php8.4-cli php8.4-curl php8.4-intl php8.4-sqlite3
 sudo apt install -y software-properties-common
 sudo add-apt-repository -y ppa:ondrej/php
 sudo apt update
-sudo apt install -y php8.4-fpm php8.4-cli php8.4-curl php8.4-intl php8.4-sqlite3 \
-                    php8.4-mbstring php8.4-xml
+sudo apt install -y php8.4-fpm php8.4-cli php8.4-bcmath php8.4-curl php8.4-intl \
+                    php8.4-sqlite3 php8.4-mbstring php8.4-xml
 ```
 
 ## Шаг 3в. Проверка расширений
 
-Приложение не запустится без `curl`, `intl`, `json`, `pdo_sqlite`:
+Приложение не запустится без `bcmath`, `curl`, `intl`, `json`, `pdo_sqlite`. Расширение
+`bcmath` легко упустить — оно не в основном списке зависимостей, а требуется транзитивно
+пакетом `moneyphp/money`, который тянет за собой SDK Битрикс24; без него `composer install`
+падает с ошибкой про `moneyphp/money v4.9.0 requires ext-bcmath`.
 
 ```bash
 php -v
-php -m | grep -E '^(curl|intl|json|pdo_sqlite|mbstring)$'
+php -m | grep -E '^(bcmath|curl|intl|json|pdo_sqlite|mbstring)$'
 ```
 
-Должны вывестись все пять строк. Если `pdo_sqlite` отсутствует — не установлен
-`php8.4-sqlite3`.
+Должны вывестись все шесть строк. Если `pdo_sqlite` отсутствует — не установлен
+`php8.4-sqlite3`; если `bcmath` — не установлен `php8.4-bcmath`.
 
 ## Шаг 4. nginx, git, composer
 
