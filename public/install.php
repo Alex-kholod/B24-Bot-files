@@ -10,10 +10,23 @@ use B24DocsBot\Config;
 $config = Config::fromFile(__DIR__ . '/../config.php');
 $app = new Application($config);
 
-$memberId = (string) ($_REQUEST['member_id'] ?? '');
-$accessToken = (string) ($_REQUEST['AUTH_ID'] ?? '');
-$refreshToken = (string) ($_REQUEST['REFRESH_ID'] ?? '');
-$domain = (string) ($_REQUEST['DOMAIN'] ?? '');
+// Современные порталы присылают установку как событие ONAPPINSTALL: весь OAuth-грант
+// (access_token, refresh_token, member_id, user_id, expires, application_token,
+// domain, client_endpoint) лежит во вложенном auth, а не в корне запроса. Старый
+// протокол слал те же данные плоскими полями (member_id, AUTH_ID, REFRESH_ID,
+// DOMAIN, AUTH_EXPIRES) — оставляем как запасной путь для более старых порталов.
+$authData = is_array($_REQUEST['auth'] ?? null) ? $_REQUEST['auth'] : [];
+
+$memberId = (string) ($authData['member_id'] ?? $_REQUEST['member_id'] ?? '');
+$accessToken = (string) ($authData['access_token'] ?? $_REQUEST['AUTH_ID'] ?? '');
+$refreshToken = (string) ($authData['refresh_token'] ?? $_REQUEST['REFRESH_ID'] ?? '');
+$domain = (string) ($authData['domain'] ?? $_REQUEST['DOMAIN'] ?? '');
+$applicationToken = (string) ($authData['application_token'] ?? '');
+$installedByUserId = (int) ($authData['user_id'] ?? 0);
+$clientEndpoint = (string) ($authData['client_endpoint'] ?? ($domain !== '' ? "https://{$domain}/rest/" : ''));
+$expiresAt = isset($authData['expires'])
+    ? (int) $authData['expires']
+    : time() + (int) ($_REQUEST['AUTH_EXPIRES'] ?? 3600);
 
 if ($memberId === '' || $accessToken === '' || $domain === '') {
     http_response_code(400);
@@ -29,12 +42,12 @@ try {
     $app->tokens()->save([
         'member_id' => $memberId,
         'domain' => $domain,
-        'client_endpoint' => "https://{$domain}/rest/",
+        'client_endpoint' => $clientEndpoint,
         'access_token' => $accessToken,
         'refresh_token' => $refreshToken,
-        'expires_at' => time() + (int) ($_REQUEST['AUTH_EXPIRES'] ?? 3600),
-        'application_token' => (string) ($_REQUEST['auth']['application_token'] ?? ''),
-        'installed_by_user_id' => (int) ($_REQUEST['auth']['user_id'] ?? 0),
+        'expires_at' => $expiresAt,
+        'application_token' => $applicationToken,
+        'installed_by_user_id' => $installedByUserId,
     ]);
     $tokensSaved = true;
 
