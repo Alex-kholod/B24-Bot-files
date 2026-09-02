@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace B24DocsBot\Service;
 
 use B24DocsBot\Bitrix\B24Api;
+use B24DocsBot\Bitrix\B24ApiException;
 use B24DocsBot\Storage\SettingsRepository;
 use B24DocsBot\Storage\TaskLinkRepository;
 use DateTimeImmutable;
@@ -86,7 +87,24 @@ final class ChecklistWriter
         if ($existingItemId !== null) {
             $itemId = (int) $existingItemId;
         } else {
-            $itemId = $this->writeWithAttachment($taskId, $rootId, $label, $diskFileId);
+            try {
+                $itemId = $this->writeWithAttachment($taskId, $rootId, $label, $diskFileId);
+            } catch (B24ApiException $exception) {
+                if ($exception->isTransient()) {
+                    // Сетевой сбой или лимит запроса ничего не говорит о поддержке ATTACHMENTS —
+                    // ретраим как обычную временную ошибку, флаг режима не трогаем.
+                    throw $exception;
+                }
+
+                // На части порталов task.checklistitem.add не молча игнорирует незнакомое поле
+                // ATTACHMENTS, а отклоняет вызов целиком (wrong_arguments) — пункт чек-листа
+                // при этом не создаётся вовсе, доигрывать нечего, сразу идём запасным путём.
+                $this->settings->set(self::SETTING_KEY, '0');
+                $this->settings->delete($stateKey);
+
+                return $this->writeWithLink($taskId, $rootId, $label, $diskFileId, $downloadUrl);
+            }
+
             $this->settings->set($stateKey, (string) $itemId);
         }
 

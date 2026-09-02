@@ -22,6 +22,7 @@ class FakeB24Api implements B24Api
     public array $savedFiles = [];           // [chatId, chatFileId]
     public ?B24ApiException $throwOnSaveFile = null;
     public ?B24ApiException $throwOnDialog = null;
+    public ?B24ApiException $throwOnChecklistAttachment = null;
     private int $nextId = 1000;
 
     public function getOpenLineDialog(int $chatId): array
@@ -82,6 +83,10 @@ class FakeB24Api implements B24Api
 
     public function addChecklistItem(int $taskId, array $fields): int
     {
+        if ($this->throwOnChecklistAttachment !== null && isset($fields['ATTACHMENTS'])) {
+            throw $this->throwOnChecklistAttachment;
+        }
+
         $id = ++$this->nextId;
         $this->addedChecklistItems[] = [$taskId, $fields];
 

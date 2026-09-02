@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace B24DocsBot\Tests\Service;
 
+use B24DocsBot\Bitrix\B24ApiException;
 use B24DocsBot\Service\ChecklistWriter;
 use B24DocsBot\Storage\Database;
 use B24DocsBot\Storage\SettingsRepository;
@@ -204,5 +205,45 @@ final class ChecklistWriterTest extends TestCase
             'после успешного повтора заголовок дополнен ссылкой, а не остаётся "голым"'
         );
         self::assertSame('0', $settings->get(ChecklistWriter::SETTING_KEY));
+    }
+
+    public function testHardRejectionOfAttachmentsFieldFallsBackWithoutCreatingItem(): void
+    {
+        // Снято на живом портале: task.checklistitem.add не молча игнорирует незнакомое ему
+        // поле ATTACHMENTS, а отклоняет вызов целиком ошибкой wrong_arguments — пункт чек-листа
+        // при этом не создаётся вовсе, "перечитать и проверить вложение" здесь невозможно.
+        $this->api->throwOnChecklistAttachment = new B24ApiException(
+            'param #1 (arFields) for method CTaskChecklistItem::add() must not contain key "attachments"',
+            ''
+        );
+
+        $itemId = $this->write();
+
+        self::assertSame('0', $this->settings->get(ChecklistWriter::SETTING_KEY));
+        self::assertFalse($this->writer->attachmentsSupported());
+        self::assertSame([9077], $this->api->attachedFiles[555]);
+        self::assertSame(
+            'akt.pdf — 31.08.2026 12:30 — https://disk/9077',
+            $this->api->getChecklistItem(555, $itemId)['TITLE']
+        );
+        // Только корень чек-листа и один пункт файла — попытка с ATTACHMENTS не оставила
+        // осиротевшего пункта, потому что addChecklistItem бросил исключение до создания.
+        self::assertCount(2, $this->api->addedChecklistItems);
+    }
+
+    public function testTransientErrorDuringProbePropagatesWithoutTouchingFlag(): void
+    {
+        $this->api->throwOnChecklistAttachment = new B24ApiException('лимит запросов', 'QUERY_LIMIT_EXCEEDED');
+
+        $this->expectException(B24ApiException::class);
+
+        try {
+            $this->write();
+        } finally {
+            self::assertNull(
+                $this->settings->get(ChecklistWriter::SETTING_KEY),
+                'временный сбой ничего не говорит о поддержке ATTACHMENTS — флаг не должен устанавливаться'
+            );
+        }
     }
 }
