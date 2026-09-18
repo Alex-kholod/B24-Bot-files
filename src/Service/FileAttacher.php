@@ -24,26 +24,26 @@ final class FileAttacher
         int $pendingId
     ): void {
         // Файл чата в Битрикс24 уже является объектом Диска с момента загрузки —
-        // отдельный шаг "сохранить на Диск" (im.disk.file.save) не нужен и на живом
-        // портале оказался ненадёжен: он копирует файл в личную папку ВЫЗЫВАЮЩЕГО
-        // пользователя и требует, чтобы этот пользователь был участником чата, а для
-        // файлов от анонимных отправителей через внешние коннекторы (Telegram и т.п.)
-        // не срабатывает вовсе ("File ID can't be saved"). chat_file_id из события —
-        // тот же самый id, что принимает disk.file.get, проверено на живом портале.
+        // отдельный шаг "сохранить на Диск" (im.disk.file.save) не нужен. Но и
+        // disk.file.get по тому же id на живом портале оказался ненадёжен: он
+        // проверяет права на чтение у пользователя, чей OAuth-токен использует
+        // приложение, а файлы открытой линии лежат в личной папке НАЗНАЧЕННОГО
+        // ОПЕРАТОРА конкретного диалога — для произвольного набора очередей этих
+        // прав у одного пользователя не бывает (ACCESS_DENIED). Ссылку на скачивание
+        // получаем через бота (imbot.v2.File.download): он проверяет владение ботом,
+        // а не Disk ACL, и работает независимо от того, кто оператор диалога.
+        // Имени файла этот метод не возвращает — используем fallback, как и раньше
+        // для файлов без имени.
         $diskFileId = $chatFileId;
-        $file = $this->api->getDiskFile($diskFileId);
-
-        $name = trim((string) ($file['NAME'] ?? ''));
-        if ($name === '') {
-            $name = $fallbackName !== '' ? $fallbackName : "file-{$diskFileId}";
-        }
+        $downloadUrl = $this->api->getChatFileDownloadUrl($diskFileId);
+        $name = $fallbackName !== '' ? $fallbackName : "file-{$diskFileId}";
 
         $this->writer->write(
             $clientKey,
             $taskId,
             $diskFileId,
             $name,
-            (string) ($file['DOWNLOAD_URL'] ?? ''),
+            $downloadUrl,
             $now,
             $pendingId
         );

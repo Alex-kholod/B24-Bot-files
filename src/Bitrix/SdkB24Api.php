@@ -66,8 +66,10 @@ final class SdkB24Api implements B24Api
         'DEAL' => 'crm.deal.get',
     ];
 
-    public function __construct(private readonly ServiceBuilder $serviceBuilder)
-    {
+    public function __construct(
+        private readonly ServiceBuilder $serviceBuilder,
+        private readonly int $botId,
+    ) {
     }
 
     public function getOpenLineDialog(int $chatId): array
@@ -108,9 +110,17 @@ final class SdkB24Api implements B24Api
         return $entity;
     }
 
-    public function getDiskFile(int $diskFileId): array
+    public function getChatFileDownloadUrl(int $fileId): string
     {
-        return $this->call('disk.file.get', ['id' => $diskFileId]);
+        // disk.file.get здесь не подходит: он проверяет права на чтение конкретного
+        // объекта Диска у пользователя, чей OAuth-токен использует приложение, а файлы
+        // открытых линий лежат в личной папке назначенного оператора диалога — на
+        // живом портале это дало ACCESS_DENIED для файлов из очередей/диалогов, где
+        // этот пользователь не является оператором (см. журнал изменений). Метод бота
+        // проверяет владение ботом, а не Disk ACL конкретного пользователя.
+        $result = $this->call('imbot.v2.File.download', ['botId' => $this->botId, 'fileId' => $fileId]);
+
+        return (string) ($result['downloadUrl'] ?? '');
     }
 
     public function getTask(int $taskId): ?array

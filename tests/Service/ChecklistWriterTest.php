@@ -231,6 +231,36 @@ final class ChecklistWriterTest extends TestCase
         self::assertCount(2, $this->api->addedChecklistItems);
     }
 
+    public function testFallbackModeStillWritesLinkWhenAttachingFileToTaskIsAccessDenied(): void
+    {
+        // tasks.task.files.attach на живом портале оказался чувствителен к Disk ACL так же,
+        // как disk.file.get: файл открытой линии лежит в личной папке назначенного оператора
+        // диалога, и у пользователя приложения может не быть туда прав на чтение. Физическое
+        // вложение файла в задачу в этом случае недостижимо, но пункт чек-листа со ссылкой
+        // всё равно должен быть создан, а не потерян.
+        $this->settings->set(ChecklistWriter::SETTING_KEY, '0');
+        $this->api->throwOnAttachFilesToTask = new B24ApiException('access denied', 'ACCESS_DENIED');
+
+        $itemId = $this->write();
+        $item = $this->api->getChecklistItem(555, $itemId);
+
+        self::assertSame([], $this->api->attachedFiles);
+        self::assertSame('akt.pdf — 31.08.2026 12:30 — https://disk/9077', $item['TITLE']);
+    }
+
+    public function testProbeFallbackStillWritesLinkWhenAttachingFileToTaskIsAccessDenied(): void
+    {
+        $this->api->checklistAcceptsAttachments = false;
+        $this->api->throwOnAttachFilesToTask = new B24ApiException('access denied', 'ACCESS_DENIED');
+
+        $itemId = $this->write();
+        $item = $this->api->getChecklistItem(555, $itemId);
+
+        self::assertSame('0', $this->settings->get(ChecklistWriter::SETTING_KEY));
+        self::assertSame([], $this->api->attachedFiles);
+        self::assertSame('akt.pdf — 31.08.2026 12:30 — https://disk/9077', $item['TITLE']);
+    }
+
     public function testTransientErrorDuringProbePropagatesWithoutTouchingFlag(): void
     {
         $this->api->throwOnChecklistAttachment = new B24ApiException('лимит запросов', 'QUERY_LIMIT_EXCEEDED');

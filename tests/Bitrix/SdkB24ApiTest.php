@@ -96,6 +96,35 @@ final class SdkB24ApiTest extends TestCase
         self::assertNull($api->getCrmEntity('INVOICE', 3));
     }
 
+    public function testGetChatFileDownloadUrlCallsBotMethodWithBotId(): void
+    {
+        // imbot.v2.File.download работает от имени бота (проверяются права владения
+        // ботом), а не пользователя, чей OAuth-токен использует приложение, — в отличие
+        // от disk.file.get, который на живом портале давал ACCESS_DENIED для файлов
+        // открытых линий, где этот пользователь не является назначенным оператором.
+        $calls = [];
+
+        $responseData = $this->createMock(ResponseData::class);
+        $responseData->method('getResult')->willReturn(['downloadUrl' => 'https://portal/rest/download.json?token=xyz']);
+
+        $response = $this->createMock(Response::class);
+        $response->method('getResponseData')->willReturn($responseData);
+
+        $core = $this->createMock(CoreInterface::class);
+        $core->method('call')
+            ->willReturnCallback(function (string $method, array $params) use (&$calls, $response): Response {
+                $calls[] = [$method, $params];
+
+                return $response;
+            });
+
+        $api = new SdkB24Api($this->serviceBuilderWith($core), 2325);
+        $url = $api->getChatFileDownloadUrl(50021);
+
+        self::assertSame([['imbot.v2.File.download', ['botId' => 2325, 'fileId' => 50021]]], $calls);
+        self::assertSame('https://portal/rest/download.json?token=xyz', $url);
+    }
+
     public function testAttachFilesToTaskCallsLegacyMethodOncePerFileWithSingularFileId(): void
     {
         // tasks.task.file.attach (REST 3.0, множественный fileIds) отсутствует на части
@@ -117,7 +146,7 @@ final class SdkB24ApiTest extends TestCase
                 return $response;
             });
 
-        $api = new SdkB24Api($this->serviceBuilderWith($core));
+        $api = new SdkB24Api($this->serviceBuilderWith($core), 456);
         $api->attachFilesToTask(13, [101, 102]);
 
         self::assertSame([
@@ -137,7 +166,7 @@ final class SdkB24ApiTest extends TestCase
         $core = $this->createMock(CoreInterface::class);
         $core->method('call')->willReturn($response);
 
-        return new SdkB24Api($this->serviceBuilderWith($core));
+        return new SdkB24Api($this->serviceBuilderWith($core), 456);
     }
 
     private function apiThrowing(Throwable $exception): SdkB24Api
@@ -145,7 +174,7 @@ final class SdkB24ApiTest extends TestCase
         $core = $this->createMock(CoreInterface::class);
         $core->method('call')->willThrowException($exception);
 
-        return new SdkB24Api($this->serviceBuilderWith($core));
+        return new SdkB24Api($this->serviceBuilderWith($core), 456);
     }
 
     private function serviceBuilderWith(CoreInterface $core): ServiceBuilder

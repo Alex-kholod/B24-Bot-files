@@ -118,7 +118,7 @@ final class ChecklistWriter
         }
 
         $this->settings->set(self::SETTING_KEY, '0');
-        $this->api->attachFilesToTask($taskId, [$diskFileId]);
+        $this->tryAttachFileToTask($taskId, $diskFileId);
         $this->api->updateChecklistItem($taskId, $itemId, ['TITLE' => $label . ' — ' . $downloadUrl]);
         $this->settings->delete($stateKey);
 
@@ -146,12 +146,31 @@ final class ChecklistWriter
         int $diskFileId,
         string $downloadUrl
     ): int {
-        $this->api->attachFilesToTask($taskId, [$diskFileId]);
+        $this->tryAttachFileToTask($taskId, $diskFileId);
 
         return $this->api->addChecklistItem($taskId, [
             'TITLE' => $label . ' — ' . $downloadUrl,
             'PARENT_ID' => $rootId,
         ]);
+    }
+
+    /**
+     * tasks.task.files.attach требует прав на чтение объекта Диска у пользователя,
+     * чей OAuth-токен использует приложение, — а файл открытой линии лежит в личной
+     * папке назначенного оператора диалога, и этих прав может не быть ни у кого,
+     * кроме самого оператора (см. FileAttacher::attach). Само физическое вложение
+     * файла в задачу в этом случае недостижимо, но пункт чек-листа со ссылкой на
+     * файл всё равно должен быть создан — поэтому такой сбой не пробрасывается дальше.
+     */
+    private function tryAttachFileToTask(int $taskId, int $diskFileId): void
+    {
+        try {
+            $this->api->attachFilesToTask($taskId, [$diskFileId]);
+        } catch (B24ApiException $exception) {
+            if ($exception->isTransient()) {
+                throw $exception;
+            }
+        }
     }
 
     private function hasAttachment(array $item, int $diskFileId): bool

@@ -164,13 +164,13 @@ final class MessageHandlerTest extends TestCase
     public function testFailureOfOneFileDoesNotBlockAnother(): void
     {
         $api = new class extends FakeB24Api {
-            public function getDiskFile(int $diskFileId): array
+            public function getChatFileDownloadUrl(int $fileId): string
             {
-                if ($diskFileId === 77) {
+                if ($fileId === 77) {
                     throw new B24ApiException('лимит', 'QUERY_LIMIT_EXCEEDED');
                 }
 
-                return parent::getDiskFile($diskFileId);
+                return parent::getChatFileDownloadUrl($fileId);
             }
         };
         $api->dialogs[5] = ['crm_entity_type' => 'CONTACT', 'crm_entity_id' => '123'];
