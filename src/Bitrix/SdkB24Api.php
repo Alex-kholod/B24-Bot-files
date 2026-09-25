@@ -69,6 +69,7 @@ final class SdkB24Api implements B24Api
     public function __construct(
         private readonly ServiceBuilder $serviceBuilder,
         private readonly int $botId,
+        private readonly string $portalOrigin,
     ) {
     }
 
@@ -148,7 +149,6 @@ final class SdkB24Api implements B24Api
         return [
             'id' => $id,
             'name' => (string) ($file['NAME'] ?? $name),
-            'url' => (string) ($file['DETAIL_URL'] ?? ''),
         ];
     }
 
@@ -211,16 +211,21 @@ final class SdkB24Api implements B24Api
         return $id;
     }
 
-    public function attachFilesToTask(int $taskId, array $diskFileIds): void
+    public function attachFileToTask(int $taskId, int $diskFileId): string
     {
-        // tasks.task.file.attach (REST 3.0, множественный fileIds) на части порталов
-        // не существует ("api method not found") — REST 3.0 для задач включён не везде.
-        // Используем старый, универсально доступный tasks.task.files.attach: он
-        // прикрепляет только один файл за вызов (параметр fileId, не массив), поэтому
-        // зовём его в цикле.
-        foreach ($diskFileIds as $diskFileId) {
-            $this->call('tasks.task.files.attach', ['taskId' => $taskId, 'fileId' => $diskFileId]);
+        // tasks.task.file.attach (REST 3.0) на части порталов не существует ("api method
+        // not found"), поэтому используется старый tasks.task.files.attach: один файл за
+        // вызов (параметр fileId), в ответе — attachmentId прикрепления.
+        $result = $this->call('tasks.task.files.attach', ['taskId' => $taskId, 'fileId' => $diskFileId]);
+        $attachmentId = (int) ($result['attachmentId'] ?? 0);
+
+        if ($attachmentId <= 0) {
+            throw new B24ApiException('Файл не прикреплён к задаче', 'ERROR_UNEXPECTED_ANSWER');
         }
+
+        // У файла в хранилище приложения нет собственной страницы (DETAIL_URL пуст), а
+        // прикрепление даёт постоянную ссылку, права на которую определяются доступом к задаче.
+        return sprintf('%s/bitrix/tools/disk/uf.php?attachedId=%d&action=download&ncc=1', $this->portalOrigin, $attachmentId);
     }
 
     public function addChecklistItem(int $taskId, array $fields): int

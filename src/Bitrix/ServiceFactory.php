@@ -38,7 +38,23 @@ final class ServiceFactory
             throw new RuntimeException('Приложение не установлено: токены портала не найдены.');
         }
 
-        return new SdkB24Api($this->buildServiceBuilder($portal), (int) ($portal['bot_id'] ?? 0));
+        return new SdkB24Api(
+            $this->buildServiceBuilder($portal),
+            (int) ($portal['bot_id'] ?? 0),
+            self::portalOrigin($portal)
+        );
+    }
+
+    public static function portalOrigin(array $portal): string
+    {
+        $url = (string) ($portal['client_endpoint'] ?? '');
+        $host = $url !== '' ? (string) parse_url($url, PHP_URL_HOST) : '';
+
+        if ($host === '') {
+            $host = (string) ($portal['domain'] ?? '');
+        }
+
+        return 'https://' . $host;
     }
 
     private function buildServiceBuilder(array $portal): ServiceBuilder

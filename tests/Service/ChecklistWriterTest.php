@@ -33,7 +33,7 @@ final class ChecklistWriterTest extends TestCase
 
     private function write(): int
     {
-        return $this->writer->write('crm:CONTACT:123', 555, 9077, 'akt.pdf', 'https://portal/disk/9077', $this->now);
+        return $this->writer->write('crm:CONTACT:123', 555, 9077, 'akt.pdf', $this->now);
     }
 
     public function testCreatesChecklistRootOnFirstWrite(): void
@@ -74,7 +74,7 @@ final class ChecklistWriterTest extends TestCase
         $item = end($this->api->addedChecklistItems)[1];
 
         self::assertSame([9077], $this->api->attachedFiles[555]);
-        self::assertSame('31.08.2026 12:30 — [URL=https://portal/disk/9077]akt.pdf[/URL]', $item['TITLE']);
+        self::assertSame('31.08.2026 12:30 — [URL=https://portal/attached/9077]akt.pdf[/URL]', $item['TITLE']);
         self::assertGreaterThan(0, $item['PARENT_ID']);
     }
 

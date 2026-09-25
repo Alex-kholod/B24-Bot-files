@@ -57,7 +57,7 @@ class FakeB24Api implements B24Api
         $this->uploadedFiles[] = [$name, $content];
         $id = 9000 + count($this->uploadedFiles);
 
-        return ['id' => $id, 'name' => $name, 'url' => "https://portal/disk/{$id}"];
+        return ['id' => $id, 'name' => $name];
     }
 
     public function getTask(int $taskId): ?array
@@ -79,15 +79,15 @@ class FakeB24Api implements B24Api
         return $id;
     }
 
-    public function attachFilesToTask(int $taskId, array $diskFileIds): void
+    public function attachFileToTask(int $taskId, int $diskFileId): string
     {
         if ($this->throwOnAttachFilesToTask !== null) {
             throw $this->throwOnAttachFilesToTask;
         }
 
-        foreach ($diskFileIds as $fileId) {
-            $this->attachedFiles[$taskId][] = $fileId;
-        }
+        $this->attachedFiles[$taskId][] = $diskFileId;
+
+        return "https://portal/attached/{$diskFileId}";
     }
 
     public function addChecklistItem(int $taskId, array $fields): int

@@ -51,7 +51,7 @@ final class FileAttacherTest extends TestCase
         self::assertSame([9001], $this->api->attachedFiles[555]);
 
         $item = end($this->api->addedChecklistItems)[1];
-        self::assertSame('31.08.2026 12:30 — [URL=https://portal/disk/9001]Требования к дому.pdf[/URL]', $item['TITLE']);
+        self::assertSame('31.08.2026 12:30 — [URL=https://portal/attached/9001]Требования к дому.pdf[/URL]', $item['TITLE']);
         self::assertArrayNotHasKey('ATTACHMENTS', $item);
     }
 

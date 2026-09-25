@@ -118,7 +118,7 @@ final class SdkB24ApiTest extends TestCase
                 return $response;
             });
 
-        $api = new SdkB24Api($this->serviceBuilderWith($core), 2325);
+        $api = new SdkB24Api($this->serviceBuilderWith($core), 2325, 'https://portal.example');
         $url = $api->getChatFileDownloadUrl(50021);
 
         self::assertSame([['imbot.v2.File.download', ['botId' => 2325, 'fileId' => 50021]]], $calls);
@@ -130,7 +130,7 @@ final class SdkB24ApiTest extends TestCase
         $calls = [];
         $answers = [
             ['ID' => 1, 'ROOT_OBJECT_ID' => 8910],
-            ['ID' => 9011, 'NAME' => 'a.pdf', 'DETAIL_URL' => 'https://portal/disk/file/a.pdf'],
+            ['ID' => 9011, 'NAME' => 'a.pdf'],
         ];
 
         $core = $this->createMock(CoreInterface::class);
@@ -146,25 +146,24 @@ final class SdkB24ApiTest extends TestCase
                 return $response;
             });
 
-        $api = new SdkB24Api($this->serviceBuilderWith($core), 456);
+        $api = new SdkB24Api($this->serviceBuilderWith($core), 456, 'https://portal.example');
         $stored = $api->uploadFileToAppStorage('a.pdf', 'BODY');
 
-        self::assertSame(['id' => 9011, 'name' => 'a.pdf', 'url' => 'https://portal/disk/file/a.pdf'], $stored);
+        self::assertSame(['id' => 9011, 'name' => 'a.pdf'], $stored);
         self::assertSame(['disk.storage.getforapp', []], $calls[0]);
         self::assertSame('disk.folder.uploadFile', $calls[1][0]);
         self::assertSame(8910, $calls[1][1]['id']);
         self::assertSame(['a.pdf', base64_encode('BODY')], $calls[1][1]['fileContent']);
     }
 
-    public function testAttachFilesToTaskCallsLegacyMethodOncePerFileWithSingularFileId(): void
+    public function testAttachFileToTaskCallsLegacyMethodAndBuildsAttachmentUrl(): void
     {
-        // tasks.task.file.attach (REST 3.0, множественный fileIds) отсутствует на части
-        // порталов ("api method not found") — REST 3.0 для задач там не включён. Используем
-        // tasks.task.files.attach: он принимает ровно один fileId за вызов, не массив.
+        // tasks.task.file.attach (REST 3.0) отсутствует на части порталов ("api method not
+        // found"), поэтому используется tasks.task.files.attach: один fileId за вызов.
         $calls = [];
 
         $responseData = $this->createMock(ResponseData::class);
-        $responseData->method('getResult')->willReturn(['attachmentId' => 1]);
+        $responseData->method('getResult')->willReturn(['attachmentId' => 1079]);
 
         $response = $this->createMock(Response::class);
         $response->method('getResponseData')->willReturn($responseData);
@@ -177,13 +176,19 @@ final class SdkB24ApiTest extends TestCase
                 return $response;
             });
 
-        $api = new SdkB24Api($this->serviceBuilderWith($core), 456);
-        $api->attachFilesToTask(13, [101, 102]);
+        $api = new SdkB24Api($this->serviceBuilderWith($core), 456, 'https://portal.example');
+        $url = $api->attachFileToTask(13, 101);
 
-        self::assertSame([
-            ['tasks.task.files.attach', ['taskId' => 13, 'fileId' => 101]],
-            ['tasks.task.files.attach', ['taskId' => 13, 'fileId' => 102]],
-        ], $calls);
+        self::assertSame([['tasks.task.files.attach', ['taskId' => 13, 'fileId' => 101]]], $calls);
+        self::assertSame('https://portal.example/bitrix/tools/disk/uf.php?attachedId=1079&action=download&ncc=1', $url);
+    }
+
+    public function testAttachFileToTaskFailsWithoutAttachmentId(): void
+    {
+        $api = $this->apiReturning([]);
+
+        $this->expectException(B24ApiException::class);
+        $api->attachFileToTask(13, 101);
     }
 
     private function apiReturning(array $result): SdkB24Api
@@ -197,7 +202,7 @@ final class SdkB24ApiTest extends TestCase
         $core = $this->createMock(CoreInterface::class);
         $core->method('call')->willReturn($response);
 
-        return new SdkB24Api($this->serviceBuilderWith($core), 456);
+        return new SdkB24Api($this->serviceBuilderWith($core), 456, 'https://portal.example');
     }
 
     private function apiThrowing(Throwable $exception): SdkB24Api
@@ -205,7 +210,7 @@ final class SdkB24ApiTest extends TestCase
         $core = $this->createMock(CoreInterface::class);
         $core->method('call')->willThrowException($exception);
 
-        return new SdkB24Api($this->serviceBuilderWith($core), 456);
+        return new SdkB24Api($this->serviceBuilderWith($core), 456, 'https://portal.example');
     }
 
     private function serviceBuilderWith(CoreInterface $core): ServiceBuilder

@@ -32,6 +32,6 @@ final class FileAttacher
         $downloaded = $this->downloader->download($url, $fallbackName !== '' ? $fallbackName : "file-{$chatFileId}");
         $stored = $this->api->uploadFileToAppStorage($downloaded['name'], $downloaded['content']);
 
-        $this->writer->write($clientKey, $taskId, $stored['id'], $stored['name'], $stored['url'], $now);
+        $this->writer->write($clientKey, $taskId, $stored['id'], $stored['name'], $now);
     }
 }

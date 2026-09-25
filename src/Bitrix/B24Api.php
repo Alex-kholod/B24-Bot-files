@@ -37,7 +37,7 @@ interface B24Api
      * disk.folder.uploadFile) — там у пользователя приложения гарантированы права на чтение,
      * в отличие от файлов открытых линий.
      *
-     * @return array{id: int, name: string, url: string} id объекта Диска, имя и ссылка на файл в интерфейсе
+     * @return array{id: int, name: string} id объекта Диска и итоговое имя файла
      */
     public function uploadFileToAppStorage(string $name, string $content): array;
 
@@ -57,8 +57,11 @@ interface B24Api
 
     public function addTask(array $fields): int;
 
-    /** @param int[] $diskFileIds */
-    public function attachFilesToTask(int $taskId, array $diskFileIds): void;
+    /**
+     * Прикрепляет файл Диска к задаче и возвращает постоянную ссылку на него, открывающуюся
+     * по правам доступа к задаче (у файла в хранилище приложения собственной страницы нет).
+     */
+    public function attachFileToTask(int $taskId, int $diskFileId): string;
 
     public function addChecklistItem(int $taskId, array $fields): int;
 

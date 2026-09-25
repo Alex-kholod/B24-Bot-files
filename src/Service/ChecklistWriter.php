@@ -26,12 +26,11 @@ final class ChecklistWriter
         int $taskId,
         int $diskFileId,
         string $fileName,
-        string $fileUrl,
         DateTimeImmutable $now
     ): int {
         $rootId = $this->checklistRootId($clientKey, $taskId);
 
-        $this->api->attachFilesToTask($taskId, [$diskFileId]);
+        $fileUrl = $this->api->attachFileToTask($taskId, $diskFileId);
 
         return $this->api->addChecklistItem($taskId, [
             'TITLE' => self::title($now, $fileName, $fileUrl),
