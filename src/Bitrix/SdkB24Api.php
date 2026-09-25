@@ -123,6 +123,35 @@ final class SdkB24Api implements B24Api
         return (string) ($result['downloadUrl'] ?? '');
     }
 
+    public function uploadFileToAppStorage(string $name, string $content): array
+    {
+        $storage = $this->call('disk.storage.getforapp', []);
+        $rootId = (int) ($storage['ROOT_OBJECT_ID'] ?? 0);
+
+        if ($rootId <= 0) {
+            throw new B24ApiException('Хранилище приложения на Диске недоступно', 'ERROR_UNEXPECTED_ANSWER');
+        }
+
+        $file = $this->call('disk.folder.uploadFile', [
+            'id' => $rootId,
+            'data' => ['NAME' => $name],
+            'fileContent' => [$name, base64_encode($content)],
+            'generateUniqueName' => true,
+        ]);
+
+        $id = (int) ($file['ID'] ?? 0);
+
+        if ($id <= 0) {
+            throw new B24ApiException('Файл не загружен на Диск', 'ERROR_UNEXPECTED_ANSWER');
+        }
+
+        return [
+            'id' => $id,
+            'name' => (string) ($file['NAME'] ?? $name),
+            'url' => (string) ($file['DETAIL_URL'] ?? ''),
+        ];
+    }
+
     public function getTask(int $taskId): ?array
     {
         try {

@@ -8,15 +8,16 @@ use B24DocsBot\Bitrix\B24ApiException;
 use B24DocsBot\Service\ChecklistWriter;
 use B24DocsBot\Service\FileAttacher;
 use B24DocsBot\Storage\Database;
-use B24DocsBot\Storage\SettingsRepository;
 use B24DocsBot\Storage\TaskLinkRepository;
 use B24DocsBot\Tests\Bitrix\FakeB24Api;
+use B24DocsBot\Tests\Bitrix\FakeFileDownloader;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 
 final class FileAttacherTest extends TestCase
 {
     private FakeB24Api $api;
+    private FakeFileDownloader $downloader;
     private FileAttacher $attacher;
     private DateTimeImmutable $now;
 
@@ -26,41 +27,53 @@ final class FileAttacherTest extends TestCase
         $db->migrate();
 
         $this->api = new FakeB24Api();
+        $this->downloader = new FakeFileDownloader();
         $links = new TaskLinkRepository($db->pdo());
         $links->save('crm:CONTACT:123', 'CONTACT', 123, 555);
 
-        $writer = new ChecklistWriter($this->api, new SettingsRepository($db->pdo()), $links, 'Документы от клиента');
-        $this->attacher = new FileAttacher($this->api, $writer);
+        $this->attacher = new FileAttacher(
+            $this->api,
+            new ChecklistWriter($this->api, $links, 'Документы от клиента'),
+            $this->downloader
+        );
         $this->now = new DateTimeImmutable('2026-08-31 12:30:00');
     }
 
-    public function testUsesChatFileIdDirectlyAsDiskFileIdThenWritesChecklistItem(): void
+    public function testDownloadsCopiesToAppStorageAttachesToTaskAndWritesLinkItem(): void
     {
-        // chat_file_id из события — уже готовый id объекта Диска, отдельного шага
-        // "сохранить на Диск" не требуется (см. комментарий в FileAttacher::attach).
-        $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now, 1);
+        $this->downloader->name = 'Требования к дому.pdf';
+
+        $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now);
 
         self::assertSame([77], $this->api->fetchedDiskFiles);
+        self::assertSame(['https://disk/77'], $this->downloader->urls);
+        self::assertSame([['Требования к дому.pdf', 'BODY']], $this->api->uploadedFiles);
+        self::assertSame([9001], $this->api->attachedFiles[555]);
 
         $item = end($this->api->addedChecklistItems)[1];
-        self::assertStringContainsString('file-77', $item['TITLE']);
-        self::assertSame([77], $item['ATTACHMENTS']);
+        self::assertSame('31.08.2026 12:30 — [URL=https://portal/disk/9001]Требования к дому.pdf[/URL]', $item['TITLE']);
+        self::assertArrayNotHasKey('ATTACHMENTS', $item);
     }
 
-    public function testUsesFallbackNameWhenProvided(): void
+    public function testUsesSyntheticNameWhenNothingKnown(): void
     {
-        $this->attacher->attach('crm:CONTACT:123', 555, 77, 'скан.jpg', $this->now, 1);
+        $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now);
 
-        $item = end($this->api->addedChecklistItems)[1];
-        self::assertStringContainsString('скан.jpg', $item['TITLE']);
+        self::assertSame('file-77', $this->api->uploadedFiles[0][0]);
     }
 
-    public function testUsesSyntheticNameWhenFallbackNameIsEmpty(): void
+    public function testPropagatesDownloadFailureWithoutTouchingTask(): void
     {
-        $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now, 1);
+        $this->downloader->throw = new B24ApiException('протухла ссылка', '');
 
-        $item = end($this->api->addedChecklistItems)[1];
-        self::assertStringContainsString('file-77', $item['TITLE']);
+        try {
+            $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now);
+            self::fail('ожидалось исключение');
+        } catch (B24ApiException) {
+        }
+
+        self::assertSame([], $this->api->uploadedFiles);
+        self::assertSame([], $this->api->addedChecklistItems);
     }
 
     public function testPropagatesApiException(): void
@@ -69,6 +82,6 @@ final class FileAttacherTest extends TestCase
 
         $this->expectException(B24ApiException::class);
 
-        $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now, 1);
+        $this->attacher->attach('crm:CONTACT:123', 555, 77, '', $this->now);
     }
 }

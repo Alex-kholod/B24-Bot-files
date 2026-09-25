@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace B24DocsBot\Service;
 
 use B24DocsBot\Bitrix\B24Api;
+use B24DocsBot\Bitrix\FileDownloader;
 use DateTimeImmutable;
 
 final class FileAttacher
@@ -12,6 +13,7 @@ final class FileAttacher
     public function __construct(
         private readonly B24Api $api,
         private readonly ChecklistWriter $writer,
+        private readonly FileDownloader $downloader,
     ) {
     }
 
@@ -20,32 +22,16 @@ final class FileAttacher
         int $taskId,
         int $chatFileId,
         string $fallbackName,
-        DateTimeImmutable $now,
-        int $pendingId
+        DateTimeImmutable $now
     ): void {
-        // Файл чата в Битрикс24 уже является объектом Диска с момента загрузки —
-        // отдельный шаг "сохранить на Диск" (im.disk.file.save) не нужен. Но и
-        // disk.file.get по тому же id на живом портале оказался ненадёжен: он
-        // проверяет права на чтение у пользователя, чей OAuth-токен использует
-        // приложение, а файлы открытой линии лежат в личной папке НАЗНАЧЕННОГО
-        // ОПЕРАТОРА конкретного диалога — для произвольного набора очередей этих
-        // прав у одного пользователя не бывает (ACCESS_DENIED). Ссылку на скачивание
-        // получаем через бота (imbot.v2.File.download): он проверяет владение ботом,
-        // а не Disk ACL, и работает независимо от того, кто оператор диалога.
-        // Имени файла этот метод не возвращает — используем fallback, как и раньше
-        // для файлов без имени.
-        $diskFileId = $chatFileId;
-        $downloadUrl = $this->api->getChatFileDownloadUrl($diskFileId);
-        $name = $fallbackName !== '' ? $fallbackName : "file-{$diskFileId}";
+        // Файл открытой линии лежит в личной папке назначенного оператора диалога, и у
+        // пользователя приложения прав на него нет (disk.file.get и tasks.task.files.attach
+        // дают ACCESS_DENIED). Поэтому: одноразовая ссылка через бота -> скачиваем сразу
+        // (она быстро протухает) -> кладём копию в хранилище приложения, где права есть.
+        $url = $this->api->getChatFileDownloadUrl($chatFileId);
+        $downloaded = $this->downloader->download($url, $fallbackName !== '' ? $fallbackName : "file-{$chatFileId}");
+        $stored = $this->api->uploadFileToAppStorage($downloaded['name'], $downloaded['content']);
 
-        $this->writer->write(
-            $clientKey,
-            $taskId,
-            $diskFileId,
-            $name,
-            $downloadUrl,
-            $now,
-            $pendingId
-        );
+        $this->writer->write($clientKey, $taskId, $stored['id'], $stored['name'], $stored['url'], $now);
     }
 }

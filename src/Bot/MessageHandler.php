@@ -101,8 +101,7 @@ final class MessageHandler
                 $taskId,
                 $row['chat_file_id'],
                 (string) $row['file_name'],
-                $now,
-                $row['id']
+                $now
             );
 
             $this->pending->markDone($row['id'], $taskId, $now);

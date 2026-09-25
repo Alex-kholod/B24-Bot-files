@@ -14,9 +14,9 @@ use B24DocsBot\Service\TaskResolver;
 use B24DocsBot\Storage\Database;
 use B24DocsBot\Storage\PendingFileRepository;
 use B24DocsBot\Storage\ProcessedMessageRepository;
-use B24DocsBot\Storage\SettingsRepository;
 use B24DocsBot\Storage\TaskLinkRepository;
 use B24DocsBot\Tests\Bitrix\FakeB24Api;
+use B24DocsBot\Tests\Bitrix\FakeFileDownloader;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
@@ -39,7 +39,6 @@ final class MessageHandlerTest extends TestCase
         $this->api->crmEntities['CONTACT:123'] = ['ID' => 123, 'TITLE' => 'Иванов Иван', 'ASSIGNED_BY_ID' => 42];
 
         $links = new TaskLinkRepository($db->pdo());
-        $settings = new SettingsRepository($db->pdo());
 
         $this->processed = new ProcessedMessageRepository($db->pdo());
         $this->pending = new PendingFileRepository($db->pdo());
@@ -49,7 +48,7 @@ final class MessageHandlerTest extends TestCase
             $this->pending,
             new ClientResolver($this->api),
             new TaskResolver($this->api, $links, 1, 0, 3),
-            new FileAttacher($this->api, new ChecklistWriter($this->api, $settings, $links, 'Документы от клиента')),
+            new FileAttacher($this->api, new ChecklistWriter($this->api, $links, 'Документы от клиента'), new FakeFileDownloader()),
             new NullLogger(),
             10
         );
@@ -186,7 +185,7 @@ final class MessageHandlerTest extends TestCase
             $pending,
             new ClientResolver($api),
             new TaskResolver($api, $links, 1, 0, 3),
-            new FileAttacher($api, new ChecklistWriter($api, new SettingsRepository($db->pdo()), $links, 'Документы')),
+            new FileAttacher($api, new ChecklistWriter($api, $links, 'Документы'), new FakeFileDownloader()),
             new NullLogger(),
             10
         );

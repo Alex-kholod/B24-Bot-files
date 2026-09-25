@@ -33,6 +33,15 @@ interface B24Api
     public function getChatFileDownloadUrl(int $fileId): string;
 
     /**
+     * Загружает содержимое файла в хранилище приложения на Диске (disk.storage.getforapp +
+     * disk.folder.uploadFile) — там у пользователя приложения гарантированы права на чтение,
+     * в отличие от файлов открытых линий.
+     *
+     * @return array{id: int, name: string, url: string} id объекта Диска, имя и ссылка на файл в интерфейсе
+     */
+    public function uploadFileToAppStorage(string $name, string $content): array;
+
+    /**
      * Задача или null, если не найдена.
      * Реализация обязана нормализовать ответ к трём ключам: int id, int status, bool isDeleted.
      */

@@ -6,7 +6,6 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use B24DocsBot\Application;
 use B24DocsBot\Config;
-use B24DocsBot\Service\ChecklistWriter;
 
 // Это скрипт, который запускают, когда что-то сломано, поэтому первая же проверка
 // обязана сообщать о проблеме внятно, а не падать трассировкой с кодом 255.
@@ -47,19 +46,6 @@ try {
     exit(1);
 }
 
-if (in_array('--recheck-attachments', $argv, true)) {
-    $app->settings()->delete(ChecklistWriter::SETTING_KEY);
-    echo "4. Флаг поддержки ATTACHMENTS сброшен: режим определится при следующей записи.\n";
-} else {
-    $flag = $app->settings()->get(ChecklistWriter::SETTING_KEY);
-    $text = match ($flag) {
-        '1' => 'файлы кладутся прямо в пункт чек-листа',
-        '0' => 'файлы цепляются к задаче, в пункт пишется ссылка',
-        default => 'ещё не определён',
-    };
-    echo "4. Режим чек-листа: {$text}.\n";
-}
-
 $counts = $app->database()->pdo()
     ->query('SELECT status, COUNT(*) AS total FROM pending_files GROUP BY status')
     ->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -68,6 +54,6 @@ $new = (int) ($counts['new'] ?? 0);
 $done = (int) ($counts['done'] ?? 0);
 $failed = (int) ($counts['failed'] ?? 0);
 
-echo "5. Очередь файлов: в работе {$new}, обработано {$done}, с ошибкой {$failed}.\n";
+echo "4. Очередь файлов: в работе {$new}, обработано {$done}, с ошибкой {$failed}.\n";
 
 exit(0);

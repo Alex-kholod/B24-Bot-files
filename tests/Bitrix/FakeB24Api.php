@@ -22,6 +22,7 @@ class FakeB24Api implements B24Api
     public array $fetchedDiskFiles = [];     // diskFileId, ...
     public ?B24ApiException $throwOnGetDiskFile = null;
     public ?B24ApiException $throwOnAttachFilesToTask = null;
+    public array $uploadedFiles = [];        // [name, content]
     public ?B24ApiException $throwOnDialog = null;
     public ?B24ApiException $throwOnChecklistAttachment = null;
     private int $nextId = 1000;
@@ -49,6 +50,14 @@ class FakeB24Api implements B24Api
         }
 
         return "https://disk/{$fileId}";
+    }
+
+    public function uploadFileToAppStorage(string $name, string $content): array
+    {
+        $this->uploadedFiles[] = [$name, $content];
+        $id = 9000 + count($this->uploadedFiles);
+
+        return ['id' => $id, 'name' => $name, 'url' => "https://portal/disk/{$id}"];
     }
 
     public function getTask(int $taskId): ?array

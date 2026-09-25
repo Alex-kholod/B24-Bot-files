@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace B24DocsBot;
 
 use B24DocsBot\Bitrix\B24Api;
+use B24DocsBot\Bitrix\CurlFileDownloader;
 use B24DocsBot\Bitrix\ServiceFactory;
 use B24DocsBot\Bot\EventRouter;
 use B24DocsBot\Bot\MessageHandler;
@@ -107,7 +108,6 @@ final class Application
 
             $checklistWriter = new ChecklistWriter(
                 $api,
-                $this->settings(),
                 $this->links(),
                 $this->config->string('checklist_title')
             );
@@ -123,7 +123,7 @@ final class Application
                     $this->config->int('task_group_id'),
                     $createdById > 0 ? $createdById : $this->config->int('default_responsible_id')
                 ),
-                new FileAttacher($api, $checklistWriter),
+                new FileAttacher($api, $checklistWriter, new CurlFileDownloader()),
                 $this->logger(),
                 $this->config->int('max_attempts')
             );

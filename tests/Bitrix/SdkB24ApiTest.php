@@ -125,6 +125,37 @@ final class SdkB24ApiTest extends TestCase
         self::assertSame('https://portal/rest/download.json?token=xyz', $url);
     }
 
+    public function testUploadFileToAppStorageUsesAppStorageRootAndBase64(): void
+    {
+        $calls = [];
+        $answers = [
+            ['ID' => 1, 'ROOT_OBJECT_ID' => 8910],
+            ['ID' => 9011, 'NAME' => 'a.pdf', 'DETAIL_URL' => 'https://portal/disk/file/a.pdf'],
+        ];
+
+        $core = $this->createMock(CoreInterface::class);
+        $core->method('call')
+            ->willReturnCallback(function (string $method, array $params) use (&$calls, &$answers): Response {
+                $calls[] = [$method, $params];
+
+                $responseData = $this->createMock(ResponseData::class);
+                $responseData->method('getResult')->willReturn(array_shift($answers));
+                $response = $this->createMock(Response::class);
+                $response->method('getResponseData')->willReturn($responseData);
+
+                return $response;
+            });
+
+        $api = new SdkB24Api($this->serviceBuilderWith($core), 456);
+        $stored = $api->uploadFileToAppStorage('a.pdf', 'BODY');
+
+        self::assertSame(['id' => 9011, 'name' => 'a.pdf', 'url' => 'https://portal/disk/file/a.pdf'], $stored);
+        self::assertSame(['disk.storage.getforapp', []], $calls[0]);
+        self::assertSame('disk.folder.uploadFile', $calls[1][0]);
+        self::assertSame(8910, $calls[1][1]['id']);
+        self::assertSame(['a.pdf', base64_encode('BODY')], $calls[1][1]['fileContent']);
+    }
+
     public function testAttachFilesToTaskCallsLegacyMethodOncePerFileWithSingularFileId(): void
     {
         // tasks.task.file.attach (REST 3.0, множественный fileIds) отсутствует на части
