@@ -15,7 +15,6 @@ class FakeB24Api implements B24Api
     public array $tasks = [];                // taskId => массив полей
     public array $checklistItems = [];       // taskId => [itemId => поля]
     public ?int $findTaskResult = null;
-    public bool $checklistAcceptsAttachments = true;
     public array $addedTasks = [];
     public array $attachedFiles = [];        // taskId => [diskFileId, ...]
     public array $addedChecklistItems = [];  // [taskId, fields]
@@ -24,7 +23,6 @@ class FakeB24Api implements B24Api
     public ?B24ApiException $throwOnAttachFilesToTask = null;
     public array $uploadedFiles = [];        // [name, content]
     public ?B24ApiException $throwOnDialog = null;
-    public ?B24ApiException $throwOnChecklistAttachment = null;
     private int $nextId = 1000;
 
     public function getOpenLineDialog(int $chatId): array
@@ -92,39 +90,17 @@ class FakeB24Api implements B24Api
 
     public function addChecklistItem(int $taskId, array $fields): int
     {
-        if ($this->throwOnChecklistAttachment !== null && isset($fields['ATTACHMENTS'])) {
-            throw $this->throwOnChecklistAttachment;
-        }
-
         $id = ++$this->nextId;
         $this->addedChecklistItems[] = [$taskId, $fields];
 
-        $stored = ['ID' => $id, 'TITLE' => (string) ($fields['TITLE'] ?? ''), 'PARENT_ID' => (int) ($fields['PARENT_ID'] ?? 0)];
-        $stored['ATTACHMENTS'] = $this->checklistAcceptsAttachments && isset($fields['ATTACHMENTS'])
-            ? array_map(static fn ($fileId): array => ['FILE_ID' => $fileId], (array) $fields['ATTACHMENTS'])
-            : [];
-
-        $this->checklistItems[$taskId][$id] = $stored;
+        $this->checklistItems[$taskId][$id] = [
+            'ID' => $id,
+            'TITLE' => (string) ($fields['TITLE'] ?? ''),
+            'PARENT_ID' => (int) ($fields['PARENT_ID'] ?? 0),
+        ];
 
         return $id;
     }
-
-    public function updateChecklistItem(int $taskId, int $itemId, array $fields): void
-    {
-        if (!isset($this->checklistItems[$taskId][$itemId])) {
-            return;
-        }
-
-        if (isset($fields['TITLE'])) {
-            $this->checklistItems[$taskId][$itemId]['TITLE'] = (string) $fields['TITLE'];
-        }
-    }
-
-    public function getChecklistItem(int $taskId, int $itemId): array
-    {
-        return $this->checklistItems[$taskId][$itemId] ?? [];
-    }
-
     public function getChecklistItems(int $taskId): array
     {
         return array_values($this->checklistItems[$taskId] ?? []);

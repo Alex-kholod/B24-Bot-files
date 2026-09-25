@@ -65,10 +65,6 @@ interface B24Api
 
     public function addChecklistItem(int $taskId, array $fields): int;
 
-    public function updateChecklistItem(int $taskId, int $itemId, array $fields): void;
-
-    public function getChecklistItem(int $taskId, int $itemId): array;
-
     /** @return array<int, array> список пунктов чек-листа задачи */
     public function getChecklistItems(int $taskId): array;
 

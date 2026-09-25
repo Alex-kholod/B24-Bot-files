@@ -242,16 +242,6 @@ final class SdkB24Api implements B24Api
         return $id;
     }
 
-    public function updateChecklistItem(int $taskId, int $itemId, array $fields): void
-    {
-        $this->call('task.checklistitem.update', ['TASKID' => $taskId, 'ITEMID' => $itemId, 'FIELDS' => $fields]);
-    }
-
-    public function getChecklistItem(int $taskId, int $itemId): array
-    {
-        return $this->call('task.checklistitem.get', ['TASKID' => $taskId, 'ITEMID' => $itemId]);
-    }
-
     public function getChecklistItems(int $taskId): array
     {
         return array_values($this->call('task.checklistitem.getlist', ['TASKID' => $taskId]));

@@ -17,7 +17,6 @@ use B24DocsBot\Service\TaskResolver;
 use B24DocsBot\Storage\Database;
 use B24DocsBot\Storage\PendingFileRepository;
 use B24DocsBot\Storage\ProcessedMessageRepository;
-use B24DocsBot\Storage\SettingsRepository;
 use B24DocsBot\Storage\TaskLinkRepository;
 use B24DocsBot\Storage\TokenRepository;
 use Monolog\Handler\RotatingFileHandler;
@@ -32,7 +31,6 @@ final class Application
     private ?PendingFileRepository $pending = null;
     private ?ProcessedMessageRepository $processed = null;
     private ?TaskLinkRepository $links = null;
-    private ?SettingsRepository $settings = null;
     private ?LoggerInterface $logger = null;
     private ?B24Api $api = null;
     private ?MessageHandler $messageHandler = null;
@@ -66,11 +64,6 @@ final class Application
     public function links(): TaskLinkRepository
     {
         return $this->links ??= new TaskLinkRepository($this->database->pdo());
-    }
-
-    public function settings(): SettingsRepository
-    {
-        return $this->settings ??= new SettingsRepository($this->database->pdo());
     }
 
     public function logger(): LoggerInterface
