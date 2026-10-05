@@ -13,6 +13,8 @@ use Psr\Log\LoggerInterface;
 final class DealDocumentPublisher
 {
     public const COMMENT_TEXT = 'документы из чата с клиентом';
+    // Каждое обновление перекачивает все файлы комментария, поэтому их число ограничено.
+    public const MAX_FILES = 10;
 
     public function __construct(
         private readonly B24Api $api,
@@ -41,7 +43,12 @@ final class DealDocumentPublisher
             if ($commentId !== null) {
                 $existing = $this->api->getTimelineComment($commentId);
 
-                if ($existing !== null) {
+                if ($existing !== null && count($existing['files']) >= self::MAX_FILES) {
+                    // Комментарий заполнен: начинаем новый, а прежний открепляем, чтобы вверху
+                    // оставался актуальный (закрепить можно не больше трёх записей на сделку).
+                    $this->unpin($dealId, $commentId);
+                    $this->comments->forget($dealId);
+                } elseif ($existing !== null) {
                     // Битрикс24 удаляет файлы, которых нет в запросе обновления, поэтому старые
                     // файлы скачиваются и отправляются заново. Любой сбой здесь прерывает работу
                     // до обновления: иначе уже сохранённые документы клиента были бы потеряны.
@@ -61,8 +68,10 @@ final class DealDocumentPublisher
                     return $commentId;
                 }
 
-                // Комментарий удалили вручную — начинаем новый.
-                $this->comments->forget($dealId);
+                if ($existing === null) {
+                    // Комментарий удалили вручную — начинаем новый.
+                    $this->comments->forget($dealId);
+                }
             }
 
             $commentId = $this->api->addDealTimelineComment($dealId, self::COMMENT_TEXT, [$new]);
@@ -87,6 +96,19 @@ final class DealDocumentPublisher
             $this->api->pinTimelineItem($commentId, $dealId);
         } catch (B24ApiException $exception) {
             $this->logger->warning('Комментарий добавлен, но не закреплён', [
+                'deal_id' => $dealId,
+                'comment_id' => $commentId,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function unpin(int $dealId, int $commentId): void
+    {
+        try {
+            $this->api->unpinTimelineItem($commentId, $dealId);
+        } catch (B24ApiException $exception) {
+            $this->logger->warning('Не удалось открепить заполненный комментарий', [
                 'deal_id' => $dealId,
                 'comment_id' => $commentId,
                 'error' => $exception->getMessage(),

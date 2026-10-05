@@ -56,6 +56,9 @@ interface B24Api
     /** Закрепляет запись таймлайна сделки (crm.timeline.item.pin). */
     public function pinTimelineItem(int $itemId, int $dealId): void;
 
+    /** Открепляет запись таймлайна сделки (crm.timeline.item.unpin). */
+    public function unpinTimelineItem(int $itemId, int $dealId): void;
+
     /** Регистрирует бота и возвращает его идентификатор. */
     public function registerBot(array $fields): int;
 }

@@ -92,6 +92,60 @@ final class DealDocumentPublisherTest extends TestCase
         self::assertCount(2, $this->api->pinned);
     }
 
+    public function testEleventhDocumentStartsNewPinnedCommentAndUnpinsFullOne(): void
+    {
+        $first = $this->publisher->publish(5547, 1, 'f1.pdf');
+
+        for ($i = 2; $i <= DealDocumentPublisher::MAX_FILES; $i++) {
+            $this->publisher->publish(5547, $i, "f{$i}.pdf");
+        }
+
+        self::assertCount(DealDocumentPublisher::MAX_FILES, $this->api->comments[$first][2]);
+        $updatesBefore = count($this->api->updates);
+        $fetchesBefore = count(array_filter($this->downloader->urls, static fn ($u) => str_starts_with($u, 'https://disk/')));
+
+        $next = $this->publisher->publish(5547, 11, 'f11.pdf');
+
+        self::assertNotSame($first, $next);
+        self::assertSame(['f11.pdf'], $this->names($next));
+        self::assertCount(DealDocumentPublisher::MAX_FILES, $this->api->comments[$first][2], 'старый комментарий не тронут');
+        self::assertSame([[5547, $first]], $this->api->unpinned);
+        self::assertSame([5547, $next], $this->api->pinned[1]);
+        self::assertSame($next, $this->comments->find(5547));
+        self::assertCount($updatesBefore, $this->api->updates, 'заполненный комментарий не обновляется');
+        self::assertSame(
+            $fetchesBefore,
+            count(array_filter($this->downloader->urls, static fn ($u) => str_starts_with($u, 'https://disk/'))),
+            'старые файлы не перекачиваются'
+        );
+    }
+
+    public function testNextDocumentAfterRotationGoesToNewComment(): void
+    {
+        for ($i = 1; $i <= DealDocumentPublisher::MAX_FILES + 1; $i++) {
+            $last = $this->publisher->publish(5547, $i, "f{$i}.pdf");
+        }
+
+        $again = $this->publisher->publish(5547, 99, 'f99.pdf');
+
+        self::assertSame($last, $again);
+        self::assertSame(['f11.pdf', 'f99.pdf'], $this->names($again));
+    }
+
+    public function testUnpinFailureDuringRotationDoesNotBlockNewComment(): void
+    {
+        for ($i = 1; $i <= DealDocumentPublisher::MAX_FILES; $i++) {
+            $first = $this->publisher->publish(5547, $i, "f{$i}.pdf");
+        }
+
+        $this->api->throwOnUnpin = new B24ApiException('нет такой записи', 'NOT_FOUND');
+
+        $next = $this->publisher->publish(5547, 11, 'f11.pdf');
+
+        self::assertNotSame($first, $next);
+        self::assertSame($next, $this->comments->find(5547));
+    }
+
     public function testFailureToFetchOldFileAbortsBeforeUpdateSoNothingIsLost(): void
     {
         $this->publisher->publish(5547, 1, 'a.pdf');

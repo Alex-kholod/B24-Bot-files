@@ -14,10 +14,12 @@ class FakeB24Api implements B24Api
     public array $fetchedFiles = [];         // chatFileId, ...
     public array $comments = [];             // commentId => [dealId, text, files [['id','name','content']]]
     public array $pinned = [];               // [dealId, commentId]
+    public array $unpinned = [];             // [dealId, commentId]
     public array $updates = [];              // [commentId, dealId, text, files]
     public ?B24ApiException $throwOnDialog = null;
     public ?B24ApiException $throwOnDownloadUrl = null;
     public ?B24ApiException $throwOnPin = null;
+    public ?B24ApiException $throwOnUnpin = null;
     public ?B24ApiException $throwOnDiskUrl = null;
     public ?B24ApiException $throwOnUpdate = null;
     private int $nextId = 1000;
@@ -89,6 +91,15 @@ class FakeB24Api implements B24Api
         }
 
         $this->pinned[] = [$dealId, $itemId];
+    }
+
+    public function unpinTimelineItem(int $itemId, int $dealId): void
+    {
+        if ($this->throwOnUnpin !== null) {
+            throw $this->throwOnUnpin;
+        }
+
+        $this->unpinned[] = [$dealId, $itemId];
     }
 
     public function registerBot(array $fields): int

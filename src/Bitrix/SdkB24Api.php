@@ -128,6 +128,15 @@ final class SdkB24Api implements B24Api
         ]);
     }
 
+    public function unpinTimelineItem(int $itemId, int $dealId): void
+    {
+        $this->call('crm.timeline.item.unpin', [
+            'id' => $itemId,
+            'ownerTypeId' => self::DEAL_OWNER_TYPE_ID,
+            'ownerId' => $dealId,
+        ]);
+    }
+
     public function registerBot(array $fields): int
     {
         $result = $this->call('imbot.v2.Bot.register', ['fields' => $fields]);

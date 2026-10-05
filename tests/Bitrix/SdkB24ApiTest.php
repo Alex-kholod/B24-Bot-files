@@ -135,14 +135,18 @@ final class SdkB24ApiTest extends TestCase
         ]], $calls);
     }
 
-    public function testPinUsesDealOwnerType(): void
+    public function testPinAndUnpinUseDealOwnerType(): void
     {
         $calls = [];
         $api = $this->apiRecording([null], $calls);
 
         $api->pinTimelineItem(999, 5547);
+        $api->unpinTimelineItem(998, 5547);
 
-        self::assertSame([['crm.timeline.item.pin', ['id' => 999, 'ownerTypeId' => 2, 'ownerId' => 5547]]], $calls);
+        self::assertSame([
+            ['crm.timeline.item.pin', ['id' => 999, 'ownerTypeId' => 2, 'ownerId' => 5547]],
+            ['crm.timeline.item.unpin', ['id' => 998, 'ownerTypeId' => 2, 'ownerId' => 5547]],
+        ], $calls);
     }
 
     public function testTransientErrorsAreMarkedTransient(): void
