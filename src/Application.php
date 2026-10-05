@@ -13,8 +13,8 @@ use B24DocsBot\Logging\RedactingProcessor;
 use B24DocsBot\Service\DealDocumentPublisher;
 use B24DocsBot\Service\DealResolver;
 use B24DocsBot\Storage\Database;
+use B24DocsBot\Storage\DealCommentRepository;
 use B24DocsBot\Storage\PendingFileRepository;
-use B24DocsBot\Storage\PinnedCommentRepository;
 use B24DocsBot\Storage\ProcessedMessageRepository;
 use B24DocsBot\Storage\TokenRepository;
 use Monolog\Handler\RotatingFileHandler;
@@ -85,6 +85,13 @@ final class Application
         return new EventRouter($this->tokens()->applicationToken());
     }
 
+    private function lockDir(): string
+    {
+        $dbPath = $this->config->string('db_path');
+
+        return ($dbPath === ':memory:' ? sys_get_temp_dir() : dirname($dbPath)) . '/locks';
+    }
+
     public function messageHandler(): MessageHandler
     {
         if ($this->messageHandler === null) {
@@ -97,8 +104,9 @@ final class Application
                 new DealDocumentPublisher(
                     $api,
                     new CurlFileDownloader(),
-                    new PinnedCommentRepository($this->database->pdo()),
-                    $this->logger()
+                    new DealCommentRepository($this->database->pdo()),
+                    $this->logger(),
+                    $this->lockDir()
                 ),
                 $this->logger(),
                 $this->config->int('max_attempts')

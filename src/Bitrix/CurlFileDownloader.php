@@ -35,6 +35,8 @@ final class CurlFileDownloader implements FileDownloader
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS => 3,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (compatible; B24DocsBot)',
+            CURLOPT_HTTPHEADER => ['Accept: */*'],
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_TIMEOUT => 120,
             CURLOPT_NOPROGRESS => false,

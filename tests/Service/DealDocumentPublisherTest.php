@@ -7,10 +7,9 @@ namespace B24DocsBot\Tests\Service;
 use B24DocsBot\Bitrix\B24ApiException;
 use B24DocsBot\Service\DealDocumentPublisher;
 use B24DocsBot\Storage\Database;
-use B24DocsBot\Storage\PinnedCommentRepository;
+use B24DocsBot\Storage\DealCommentRepository;
 use B24DocsBot\Tests\Bitrix\FakeB24Api;
 use B24DocsBot\Tests\Bitrix\FakeFileDownloader;
-use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 
@@ -18,7 +17,7 @@ final class DealDocumentPublisherTest extends TestCase
 {
     private FakeB24Api $api;
     private FakeFileDownloader $downloader;
-    private PinnedCommentRepository $pinned;
+    private DealCommentRepository $comments;
     private DealDocumentPublisher $publisher;
 
     protected function setUp(): void
@@ -28,108 +27,155 @@ final class DealDocumentPublisherTest extends TestCase
 
         $this->api = new FakeB24Api();
         $this->downloader = new FakeFileDownloader();
-        $this->pinned = new PinnedCommentRepository($db->pdo());
-        $this->publisher = new DealDocumentPublisher($this->api, $this->downloader, $this->pinned, new NullLogger());
-    }
-
-    private function publish(int $dealId = 5547, int $fileId = 77, string $at = '2026-10-05 15:35:00'): int
-    {
-        return $this->publisher->publish($dealId, $fileId, '', new DateTimeImmutable($at));
-    }
-
-    public function testDownloadsFileAndAddsCommentWithItToDealTimeline(): void
-    {
-        $this->downloader->name = 'Требования к дому.pdf';
-
-        $commentId = $this->publish();
-
-        self::assertSame(['https://disk/77'], $this->downloader->urls);
-        self::assertSame(
-            [5547, 'Документ от клиента — 05.10.2026 15:35', 'Требования к дому.pdf', 'BODY'],
-            $this->api->comments[$commentId]
+        $this->comments = new DealCommentRepository($db->pdo());
+        $this->publisher = new DealDocumentPublisher(
+            $this->api,
+            $this->downloader,
+            $this->comments,
+            new NullLogger(),
+            sys_get_temp_dir() . '/b24-docs-bot-test-locks'
         );
     }
 
-    public function testUsesSyntheticNameWhenNothingKnown(): void
+    private function names(int $commentId): array
     {
-        $commentId = $this->publish();
-
-        self::assertSame('file-77', $this->api->comments[$commentId][2]);
+        return array_column($this->api->comments[$commentId][2], 'name');
     }
 
-    public function testPinsNewComment(): void
+    public function testFirstDocumentCreatesAndPinsCommentWithFixedText(): void
     {
-        $commentId = $this->publish();
+        $this->downloader->name = 'Требования к дому.pdf';
 
+        $commentId = $this->publisher->publish(5547, 77, '');
+
+        self::assertSame(5547, $this->api->comments[$commentId][0]);
+        self::assertSame('документы из чата с клиентом', $this->api->comments[$commentId][1]);
+        self::assertSame(['Требования к дому.pdf'], $this->names($commentId));
         self::assertSame([[5547, $commentId]], $this->api->pinned);
-        self::assertSame([$commentId], $this->pinned->forDeal(5547));
+        self::assertSame($commentId, $this->comments->find(5547));
     }
 
-    public function testUnpinsOldestWhenLimitOfThreeIsReached(): void
+    public function testSecondDocumentIsAddedToTheSameCommentKeepingOldFiles(): void
     {
-        $first = $this->publish(5547, 1, '2026-10-05 10:00:00');
-        $second = $this->publish(5547, 2, '2026-10-05 11:00:00');
-        $third = $this->publish(5547, 3, '2026-10-05 12:00:00');
-        $fourth = $this->publish(5547, 4, '2026-10-05 13:00:00');
+        $first = $this->publisher->publish(5547, 1, 'a.pdf');
+        $oldDiskId = $this->api->comments[$first][2][0]['id'];
 
-        self::assertSame([[5547, $first]], $this->api->unpinned);
-        self::assertSame([$second, $third, $fourth], $this->pinned->forDeal(5547));
+        $second = $this->publisher->publish(5547, 2, 'b.pdf');
+
+        self::assertSame($first, $second);
+        self::assertCount(1, $this->api->comments, 'нового комментария нет');
+        self::assertCount(1, $this->api->pinned, 'повторно не закрепляется');
+        self::assertSame(['a.pdf', 'b.pdf'], $this->names($first));
+
+        // Старый файл скачан заново с Диска по его id и отправлен вместе с новым.
+        $sent = $this->api->updates[0][3];
+        self::assertSame("BODY:https://disk/{$oldDiskId}", $sent[0]['content']);
+        self::assertSame('BODY:https://chat/2', $sent[1]['content']);
     }
 
-    public function testPinsOfDifferentDealsDoNotInterfere(): void
+    public function testThreeDocumentsAccumulateInOneComment(): void
     {
-        for ($i = 1; $i <= 3; $i++) {
-            $this->publish(1, $i);
+        $id = $this->publisher->publish(5547, 1, 'a.pdf');
+        $this->publisher->publish(5547, 2, 'b.pdf');
+        $this->publisher->publish(5547, 3, 'c.pdf');
+
+        self::assertSame(['a.pdf', 'b.pdf', 'c.pdf'], $this->names($id));
+        self::assertCount(1, $this->api->comments);
+    }
+
+    public function testDifferentDealsGetDifferentComments(): void
+    {
+        $a = $this->publisher->publish(1, 1, 'a.pdf');
+        $b = $this->publisher->publish(2, 2, 'b.pdf');
+
+        self::assertNotSame($a, $b);
+        self::assertCount(2, $this->api->pinned);
+    }
+
+    public function testFailureToFetchOldFileAbortsBeforeUpdateSoNothingIsLost(): void
+    {
+        $this->publisher->publish(5547, 1, 'a.pdf');
+        $this->api->throwOnDiskUrl = new B24ApiException('access denied', '');
+
+        try {
+            $this->publisher->publish(5547, 2, 'b.pdf');
+            self::fail('ожидалось исключение');
+        } catch (B24ApiException) {
         }
 
-        $this->publish(2, 9);
-
-        self::assertSame([], $this->api->unpinned);
+        self::assertSame([], $this->api->updates);
+        self::assertSame(['a.pdf'], $this->names(array_key_first($this->api->comments)));
     }
 
-    public function testPinFailureDoesNotFailPublishingAndDoesNotDuplicateComment(): void
+    public function testFailureToDownloadOldFileAbortsBeforeUpdate(): void
+    {
+        $this->publisher->publish(5547, 1, 'a.pdf');
+        $oldDiskId = $this->api->comments[array_key_first($this->api->comments)][2][0]['id'];
+        $this->downloader->throwOnUrl["https://disk/{$oldDiskId}"] = new B24ApiException('HTTP 403', '');
+
+        $this->expectException(B24ApiException::class);
+
+        try {
+            $this->publisher->publish(5547, 2, 'b.pdf');
+        } finally {
+            self::assertSame([], $this->api->updates);
+        }
+    }
+
+    public function testUpdateFailurePropagates(): void
+    {
+        $this->publisher->publish(5547, 1, 'a.pdf');
+        $this->api->throwOnUpdate = new B24ApiException('лимит', 'QUERY_LIMIT_EXCEEDED');
+
+        $this->expectException(B24ApiException::class);
+
+        $this->publisher->publish(5547, 2, 'b.pdf');
+    }
+
+    public function testStartsNewCommentWhenPreviousOneWasDeleted(): void
+    {
+        $first = $this->publisher->publish(5547, 1, 'a.pdf');
+        unset($this->api->comments[$first]);
+
+        $second = $this->publisher->publish(5547, 2, 'b.pdf');
+
+        self::assertNotSame($first, $second);
+        self::assertSame($second, $this->comments->find(5547));
+        self::assertSame(['b.pdf'], $this->names($second));
+        self::assertCount(2, $this->api->pinned);
+    }
+
+    public function testPinFailureDoesNotFailPublishing(): void
     {
         // Например, на сделке уже закреплены три чужие записи.
         $this->api->throwOnPin = new B24ApiException('Только три события можно добавить в избранное', '0');
 
-        $commentId = $this->publish();
+        $commentId = $this->publisher->publish(5547, 1, 'a.pdf');
 
+        self::assertSame($commentId, $this->comments->find(5547), 'комментарий запомнен, дубля при повторе не будет');
         self::assertCount(1, $this->api->comments);
-        self::assertSame([], $this->pinned->forDeal(5547));
-        self::assertGreaterThan(0, $commentId);
     }
 
-    public function testUnpinFailureDoesNotPreventPinningNewComment(): void
-    {
-        $this->api->throwOnUnpin = new B24ApiException('нет такой записи', 'NOT_FOUND');
-
-        for ($i = 1; $i <= 4; $i++) {
-            $last = $this->publish(5547, $i, "2026-10-05 1{$i}:00:00");
-        }
-
-        self::assertContains($last, $this->pinned->forDeal(5547));
-        self::assertCount(3, $this->pinned->forDeal(5547));
-    }
-
-    public function testDownloadFailureAddsNoComment(): void
+    public function testChatDownloadFailureCreatesNothing(): void
     {
         $this->downloader->throw = new B24ApiException('протухла ссылка', '');
 
         try {
-            $this->publish();
+            $this->publisher->publish(5547, 1, 'a.pdf');
             self::fail('ожидалось исключение');
         } catch (B24ApiException) {
         }
 
         self::assertSame([], $this->api->comments);
+        self::assertNull($this->comments->find(5547));
     }
 
-    public function testDownloadUrlFailurePropagates(): void
+    public function testChatUrlFailurePropagates(): void
     {
         $this->api->throwOnDownloadUrl = new B24ApiException('лимит', 'QUERY_LIMIT_EXCEEDED');
 
         $this->expectException(B24ApiException::class);
 
-        $this->publish();
+        $this->publisher->publish(5547, 1, 'a.pdf');
     }
 }

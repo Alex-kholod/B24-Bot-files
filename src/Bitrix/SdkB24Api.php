@@ -53,13 +53,13 @@ final class SdkB24Api implements B24Api
         return (string) ($result['downloadUrl'] ?? '');
     }
 
-    public function addDealTimelineComment(int $dealId, string $text, string $fileName, string $fileContent): int
+    public function addDealTimelineComment(int $dealId, string $text, array $files): int
     {
         $result = $this->call('crm.timeline.comment.add', ['fields' => [
             'ENTITY_ID' => $dealId,
             'ENTITY_TYPE' => 'deal',
             'COMMENT' => $text,
-            'FILES' => [[$fileName, base64_encode($fileContent)]],
+            'FILES' => self::encodeFiles($files),
         ]]);
 
         // Ответ метода — скалярный идентификатор, SDK оборачивает его в массив.
@@ -72,18 +72,56 @@ final class SdkB24Api implements B24Api
         return $id;
     }
 
-    public function pinTimelineItem(int $itemId, int $dealId): void
+    public function getTimelineComment(int $commentId): ?array
     {
-        $this->call('crm.timeline.item.pin', [
-            'id' => $itemId,
+        try {
+            $comment = $this->call('crm.timeline.comment.get', ['id' => $commentId]);
+        } catch (B24ApiException $exception) {
+            // Битрикс24 отвечает на удалённый комментарий пустым кодом и текстом "Not found.".
+            if (!$exception->isTransient() && stripos($exception->getMessage(), 'not found') !== false) {
+                return null;
+            }
+
+            throw $exception;
+        }
+
+        if ($comment === []) {
+            return null;
+        }
+
+        $files = [];
+
+        foreach ((array) ($comment['FILES'] ?? []) as $key => $file) {
+            $id = (int) ($file['id'] ?? $key);
+
+            if ($id > 0) {
+                $files[] = ['id' => $id, 'name' => (string) ($file['name'] ?? "file-{$id}")];
+            }
+        }
+
+        return ['files' => $files];
+    }
+
+    public function getDiskFileDownloadUrl(int $diskFileId): string
+    {
+        $file = $this->call('disk.file.get', ['id' => $diskFileId]);
+
+        return (string) ($file['DOWNLOAD_URL'] ?? '');
+    }
+
+    public function updateTimelineCommentFiles(int $commentId, int $dealId, string $text, array $files): void
+    {
+        $this->call('crm.timeline.comment.update', [
+            'id' => $commentId,
             'ownerTypeId' => self::DEAL_OWNER_TYPE_ID,
             'ownerId' => $dealId,
+            'fields' => ['COMMENT' => $text, 'FILES' => self::encodeFiles($files)],
         ]);
     }
 
-    public function unpinTimelineItem(int $itemId, int $dealId): void
+    public function pinTimelineItem(int $itemId, int $dealId): void
     {
-        $this->call('crm.timeline.item.unpin', [
+        $this->call('crm.timeline.item.pin', [
             'id' => $itemId,
             'ownerTypeId' => self::DEAL_OWNER_TYPE_ID,
             'ownerId' => $dealId,
@@ -101,6 +139,15 @@ final class SdkB24Api implements B24Api
         }
 
         return $botId;
+    }
+
+    /** @param array<int, array{name: string, content: string}> $files */
+    private static function encodeFiles(array $files): array
+    {
+        return array_map(
+            static fn (array $file): array => [$file['name'], base64_encode($file['content'])],
+            array_values($files)
+        );
     }
 
     /**

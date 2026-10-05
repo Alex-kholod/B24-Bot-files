@@ -42,12 +42,12 @@ final class SdkB24ApiTest extends TestCase
         self::assertSame('https://portal/rest/download.json?token=xyz', $url);
     }
 
-    public function testAddDealTimelineCommentSendsFileAsBase64AndReadsScalarId(): void
+    public function testAddDealTimelineCommentSendsFilesAsBase64AndReadsScalarId(): void
     {
         $calls = [];
         $api = $this->apiRecording([999], $calls);
 
-        $id = $api->addDealTimelineComment(5547, 'Документ', 'a.pdf', 'BODY');
+        $id = $api->addDealTimelineComment(5547, 'Документ', [['name' => 'a.pdf', 'content' => 'BODY']]);
 
         self::assertSame(999, $id);
         self::assertSame([[
@@ -66,21 +66,83 @@ final class SdkB24ApiTest extends TestCase
         $api = $this->apiReturning([]);
 
         $this->expectException(B24ApiException::class);
-        $api->addDealTimelineComment(5547, 'Документ', 'a.pdf', 'BODY');
+        $api->addDealTimelineComment(5547, 'Документ', [['name' => 'a.pdf', 'content' => 'BODY']]);
     }
 
-    public function testPinAndUnpinUseDealOwnerType(): void
+    public function testGetTimelineCommentNormalisesFiles(): void
+    {
+        $api = $this->apiReturning(['ID' => '9', 'FILES' => [
+            '930' => ['id' => 930, 'name' => '1.gif'],
+            '931' => ['name' => '2.gif'],
+        ]]);
+
+        self::assertSame(
+            ['files' => [['id' => 930, 'name' => '1.gif'], ['id' => 931, 'name' => '2.gif']]],
+            $api->getTimelineComment(9)
+        );
+    }
+
+    public function testGetTimelineCommentWithoutFilesGivesEmptyList(): void
+    {
+        $api = $this->apiReturning(['ID' => '9', 'FILES' => []]);
+
+        self::assertSame(['files' => []], $api->getTimelineComment(9));
+    }
+
+    public function testGetTimelineCommentIsNullWhenNotFound(): void
+    {
+        $api = $this->apiThrowing(new \RuntimeException('Not found.'));
+
+        self::assertNull($api->getTimelineComment(9));
+    }
+
+    public function testGetTimelineCommentRethrowsOtherErrors(): void
+    {
+        $api = $this->apiThrowing(new \RuntimeException('Access denied.'));
+
+        $this->expectException(B24ApiException::class);
+        $api->getTimelineComment(9);
+    }
+
+    public function testGetDiskFileDownloadUrlReadsDownloadUrl(): void
+    {
+        $api = $this->apiReturning(['ID' => 930, 'DOWNLOAD_URL' => 'https://portal/rest/download.json?x=1']);
+
+        self::assertSame('https://portal/rest/download.json?x=1', $api->getDiskFileDownloadUrl(930));
+    }
+
+    public function testUpdateTimelineCommentFilesSendsWholeSetWithOwner(): void
+    {
+        $calls = [];
+        $api = $this->apiRecording([999], $calls);
+
+        $api->updateTimelineCommentFiles(999, 5547, 'Документ', [
+            ['name' => 'a.pdf', 'content' => 'A'],
+            ['name' => 'b.pdf', 'content' => 'B'],
+        ]);
+
+        self::assertSame([[
+            'crm.timeline.comment.update',
+            [
+                'id' => 999,
+                'ownerTypeId' => 2,
+                'ownerId' => 5547,
+                'fields' => [
+                    'COMMENT' => 'Документ',
+                    'FILES' => [['a.pdf', base64_encode('A')], ['b.pdf', base64_encode('B')]],
+                ],
+            ],
+        ]], $calls);
+    }
+
+    public function testPinUsesDealOwnerType(): void
     {
         $calls = [];
         $api = $this->apiRecording([null], $calls);
 
         $api->pinTimelineItem(999, 5547);
-        $api->unpinTimelineItem(998, 5547);
 
-        self::assertSame([
-            ['crm.timeline.item.pin', ['id' => 999, 'ownerTypeId' => 2, 'ownerId' => 5547]],
-            ['crm.timeline.item.unpin', ['id' => 998, 'ownerTypeId' => 2, 'ownerId' => 5547]],
-        ], $calls);
+        self::assertSame([['crm.timeline.item.pin', ['id' => 999, 'ownerTypeId' => 2, 'ownerId' => 5547]]], $calls);
     }
 
     public function testTransientErrorsAreMarkedTransient(): void

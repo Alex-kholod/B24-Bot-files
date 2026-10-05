@@ -7,68 +7,84 @@ namespace B24DocsBot\Service;
 use B24DocsBot\Bitrix\B24Api;
 use B24DocsBot\Bitrix\B24ApiException;
 use B24DocsBot\Bitrix\FileDownloader;
-use B24DocsBot\Storage\PinnedCommentRepository;
-use DateTimeImmutable;
+use B24DocsBot\Storage\DealCommentRepository;
 use Psr\Log\LoggerInterface;
 
 final class DealDocumentPublisher
 {
-    // Битрикс24 разрешает закрепить в таймлайне не больше трёх записей на сущность.
-    private const MAX_PINNED = 3;
+    public const COMMENT_TEXT = 'документы из чата с клиентом';
 
     public function __construct(
         private readonly B24Api $api,
         private readonly FileDownloader $downloader,
-        private readonly PinnedCommentRepository $pinned,
+        private readonly DealCommentRepository $comments,
         private readonly LoggerInterface $logger,
+        private readonly string $lockDir,
     ) {
     }
 
     /**
-     * Скачивает файл по одноразовой ссылке (она быстро протухает), добавляет в таймлайн
-     * сделки комментарий с файлом и закрепляет его. Закрепление — best effort: комментарий
-     * к этому моменту уже создан, и повтор строки очереди создал бы дубль.
+     * Кладёт файл в единственный закреплённый комментарий сделки: создаёт его при первом
+     * документе, а при следующих заменяет файлы комментария итоговым набором.
      */
-    public function publish(int $dealId, int $chatFileId, string $fallbackName, DateTimeImmutable $now): int
+    public function publish(int $dealId, int $chatFileId, string $fallbackName): int
     {
-        $url = $this->api->getChatFileDownloadUrl($chatFileId);
-        $file = $this->downloader->download($url, $fallbackName !== '' ? $fallbackName : "file-{$chatFileId}");
+        $lock = $this->lock($dealId);
 
-        $commentId = $this->api->addDealTimelineComment(
-            $dealId,
-            'Документ от клиента — ' . $now->format('d.m.Y H:i'),
-            $file['name'],
-            $file['content']
-        );
-
-        $this->pin($dealId, $commentId, $now);
-
-        return $commentId;
-    }
-
-    private function pin(int $dealId, int $commentId, DateTimeImmutable $now): void
-    {
         try {
-            $mine = $this->pinned->forDeal($dealId);
+            // Ссылка на файл чата одноразовая и быстро протухает — качаем сразу.
+            $url = $this->api->getChatFileDownloadUrl($chatFileId);
+            $new = $this->downloader->download($url, $fallbackName !== '' ? $fallbackName : "file-{$chatFileId}");
 
-            // Освобождаем место, открепляя самые старые из закреплённых ботом комментариев.
-            while (count($mine) >= self::MAX_PINNED) {
-                $oldest = array_shift($mine);
-                $this->pinned->remove($oldest);
+            $commentId = $this->comments->find($dealId);
 
-                try {
-                    $this->api->unpinTimelineItem($oldest, $dealId);
-                } catch (B24ApiException $exception) {
-                    $this->logger->warning('Не удалось открепить старый комментарий', [
-                        'deal_id' => $dealId,
-                        'comment_id' => $oldest,
-                        'error' => $exception->getMessage(),
-                    ]);
+            if ($commentId !== null) {
+                $existing = $this->api->getTimelineComment($commentId);
+
+                if ($existing !== null) {
+                    // Битрикс24 удаляет файлы, которых нет в запросе обновления, поэтому старые
+                    // файлы скачиваются и отправляются заново. Любой сбой здесь прерывает работу
+                    // до обновления: иначе уже сохранённые документы клиента были бы потеряны.
+                    $files = [];
+
+                    foreach ($existing['files'] as $file) {
+                        $oldUrl = $this->api->getDiskFileDownloadUrl($file['id']);
+                        $files[] = [
+                            'name' => $file['name'],
+                            'content' => $this->downloader->download($oldUrl, $file['name'])['content'],
+                        ];
+                    }
+
+                    $files[] = $new;
+                    $this->api->updateTimelineCommentFiles($commentId, $dealId, self::COMMENT_TEXT, $files);
+
+                    return $commentId;
                 }
+
+                // Комментарий удалили вручную — начинаем новый.
+                $this->comments->forget($dealId);
             }
 
+            $commentId = $this->api->addDealTimelineComment($dealId, self::COMMENT_TEXT, [$new]);
+            $this->comments->save($dealId, $commentId);
+            $this->pin($dealId, $commentId);
+
+            return $commentId;
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    /**
+     * Закрепление — best effort: комментарий к этому моменту уже создан и записан, повтор
+     * строки очереди создал бы второй комментарий. Битрикс24 разрешает закрепить не больше
+     * трёх записей на сделку.
+     */
+    private function pin(int $dealId, int $commentId): void
+    {
+        try {
             $this->api->pinTimelineItem($commentId, $dealId);
-            $this->pinned->add($dealId, $commentId, $now);
         } catch (B24ApiException $exception) {
             $this->logger->warning('Комментарий добавлен, но не закреплён', [
                 'deal_id' => $dealId,
@@ -76,5 +92,26 @@ final class DealDocumentPublisher
                 'error' => $exception->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Два документа одной сделки, обработанные параллельно (вебхук и cron), иначе прочитали бы
+     * один и тот же набор файлов и затёрли бы друг друга при обновлении.
+     *
+     * @return resource
+     */
+    private function lock(int $dealId)
+    {
+        if (!is_dir($this->lockDir) && !mkdir($this->lockDir, 0o775, true) && !is_dir($this->lockDir)) {
+            throw new B24ApiException("Не удалось создать каталог блокировок: {$this->lockDir}", 'NETWORK_ERROR');
+        }
+
+        $handle = fopen($this->lockDir . "/deal-{$dealId}.lock", 'c');
+
+        if ($handle === false || !flock($handle, LOCK_EX)) {
+            throw new B24ApiException('Не удалось заблокировать сделку для записи', 'NETWORK_ERROR');
+        }
+
+        return $handle;
     }
 }

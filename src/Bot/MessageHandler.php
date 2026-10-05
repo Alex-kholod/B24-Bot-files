@@ -95,8 +95,7 @@ final class MessageHandler
             $commentId = $this->publisher->publish(
                 $dealId,
                 $row['chat_file_id'],
-                (string) $row['file_name'],
-                $now
+                (string) $row['file_name']
             );
 
             $this->pending->markDone($row['id'], $dealId, $now);

@@ -10,8 +10,8 @@ use B24DocsBot\Bot\MessageHandler;
 use B24DocsBot\Service\DealDocumentPublisher;
 use B24DocsBot\Service\DealResolver;
 use B24DocsBot\Storage\Database;
+use B24DocsBot\Storage\DealCommentRepository;
 use B24DocsBot\Storage\PendingFileRepository;
-use B24DocsBot\Storage\PinnedCommentRepository;
 use B24DocsBot\Storage\ProcessedMessageRepository;
 use B24DocsBot\Tests\Bitrix\FakeB24Api;
 use B24DocsBot\Tests\Bitrix\FakeFileDownloader;
@@ -55,8 +55,9 @@ final class MessageHandlerTest extends TestCase
             new DealDocumentPublisher(
                 $api,
                 new FakeFileDownloader(),
-                new PinnedCommentRepository($db->pdo()),
-                new NullLogger()
+                new DealCommentRepository($db->pdo()),
+                new NullLogger(),
+                sys_get_temp_dir() . '/b24-docs-bot-test-locks'
             ),
             new NullLogger(),
             10
@@ -162,12 +163,13 @@ final class MessageHandlerTest extends TestCase
         self::assertCount(0, $this->pending->due($later));
     }
 
-    public function testMultipleFilesInOneMessageGiveOneCommentEach(): void
+    public function testMultipleFilesInOneMessageGoToOneComment(): void
     {
         $this->handler->handle($this->event(['fileIds' => [77, 78]]), $this->now);
 
         self::assertSame([77, 78], $this->api->fetchedFiles);
-        self::assertCount(2, $this->api->comments);
+        self::assertCount(1, $this->api->comments);
+        self::assertCount(2, array_values($this->api->comments)[0][2]);
     }
 
     public function testFailureOfOneFileDoesNotBlockAnother(): void

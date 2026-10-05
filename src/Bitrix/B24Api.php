@@ -27,16 +27,34 @@ interface B24Api
     public function getChatFileDownloadUrl(int $fileId): string;
 
     /**
-     * Добавляет в таймлайн сделки комментарий с одним файлом (crm.timeline.comment.add)
-     * и возвращает идентификатор комментария.
+     * Добавляет в таймлайн сделки комментарий с файлами (crm.timeline.comment.add)
+     * и возвращает его идентификатор.
+     *
+     * @param array<int, array{name: string, content: string}> $files
      */
-    public function addDealTimelineComment(int $dealId, string $text, string $fileName, string $fileContent): int;
+    public function addDealTimelineComment(int $dealId, string $text, array $files): int;
+
+    /**
+     * Комментарий таймлайна или null, если его нет (удалён). Ключ files — файлы комментария
+     * в виде [['id' => id файла на Диске, 'name' => имя], ...].
+     *
+     * @return array{files: array<int, array{id: int, name: string}>}|null
+     */
+    public function getTimelineComment(int $commentId): ?array;
+
+    /** Подписанная ссылка на скачивание объекта Диска (disk.file.get, DOWNLOAD_URL). */
+    public function getDiskFileDownloadUrl(int $diskFileId): string;
+
+    /**
+     * Заменяет файлы комментария итоговым набором (crm.timeline.comment.update).
+     * Битрикс24 удаляет все файлы, которых нет в запросе, поэтому передавать надо старые и новые.
+     *
+     * @param array<int, array{name: string, content: string}> $files
+     */
+    public function updateTimelineCommentFiles(int $commentId, int $dealId, string $text, array $files): void;
 
     /** Закрепляет запись таймлайна сделки (crm.timeline.item.pin). */
     public function pinTimelineItem(int $itemId, int $dealId): void;
-
-    /** Открепляет запись таймлайна сделки (crm.timeline.item.unpin). */
-    public function unpinTimelineItem(int $itemId, int $dealId): void;
 
     /** Регистрирует бота и возвращает его идентификатор. */
     public function registerBot(array $fields): int;
