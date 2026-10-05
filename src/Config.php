@@ -17,15 +17,12 @@ final class Config
         'bot_name',
         'bot_token',
         'handler_url',
-        'default_responsible_id',
         'db_path',
         'log_path',
     ];
 
     private const DEFAULTS = [
-        'checklist_title' => 'Документы от клиента',
         'max_attempts' => 10,
-        'task_group_id' => 0,
         'log_level' => 'info',
     ];
 

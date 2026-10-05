@@ -11,18 +11,14 @@ return [
     // https://oauth.bitrix.info/. Пустая строка активирует встроенное значение по умолчанию SDK
     // (западный сервер), что приведет к отказу при обновлении токенов портала .bitrix24.ru.
     'oauth_server_url' => 'https://oauth.bitrix24.tech/',
-    // Битрикс24 использует две разные области доступа для задач: "task" для старого API
-    // и "tasks" для REST 3.0. Обе обязательны и одна не заменяет другую.
-    'scope' => 'imbot,imopenlines,im,task,tasks,crm,disk,user',
+    // Для работы бота нужны imbot, imopenlines, im и crm (комментарии таймлайна сделки).
+    'scope' => 'imbot,imopenlines,im,crm,disk,user',
 
     'bot_code' => 'ol_docs_bot',
     'bot_name' => 'Документы клиента',
     'bot_token' => 'change-me-max-40-chars',
     'handler_url' => 'https://example.org/handler.php',
 
-    'default_responsible_id' => 1,
-    'task_group_id' => 0,
-    'checklist_title' => 'Документы от клиента',
     'max_attempts' => 10,
 
     'db_path' => __DIR__ . '/var/data/bot.sqlite',

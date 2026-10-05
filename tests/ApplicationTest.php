@@ -20,7 +20,6 @@ final class ApplicationTest extends TestCase
             'bot_name' => 'Документы',
             'bot_token' => 'token',
             'handler_url' => 'https://example.org/handler.php',
-            'default_responsible_id' => 1,
             'db_path' => ':memory:',
             'log_path' => sys_get_temp_dir() . '/b24-docs-bot-test',
         ]));

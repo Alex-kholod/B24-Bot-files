@@ -20,7 +20,7 @@ final class DatabaseTest extends TestCase
             ->query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
             ->fetchAll(\PDO::FETCH_COLUMN);
 
-        foreach (['auth_tokens', 'pending_files', 'processed_messages', 'settings', 'task_links'] as $table) {
+        foreach (['auth_tokens', 'pending_files', 'processed_messages', 'settings', 'task_links', 'pinned_comments'] as $table) {
             self::assertContains($table, $tables);
         }
     }

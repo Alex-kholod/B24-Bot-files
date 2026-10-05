@@ -77,6 +77,13 @@ final class Migrations
                     value TEXT NOT NULL
                 )
                 SQL,
+            '008_pinned_comments' => <<<'SQL'
+                CREATE TABLE IF NOT EXISTS pinned_comments (
+                    comment_id INTEGER PRIMARY KEY,
+                    deal_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                SQL,
         ];
     }
 }

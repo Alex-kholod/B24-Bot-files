@@ -7,14 +7,12 @@ namespace B24DocsBot\Tests\Bot;
 use B24DocsBot\Bitrix\B24ApiException;
 use B24DocsBot\Bot\BotEvent;
 use B24DocsBot\Bot\MessageHandler;
-use B24DocsBot\Service\ChecklistWriter;
-use B24DocsBot\Service\ClientResolver;
-use B24DocsBot\Service\FileAttacher;
-use B24DocsBot\Service\TaskResolver;
+use B24DocsBot\Service\DealDocumentPublisher;
+use B24DocsBot\Service\DealResolver;
 use B24DocsBot\Storage\Database;
 use B24DocsBot\Storage\PendingFileRepository;
+use B24DocsBot\Storage\PinnedCommentRepository;
 use B24DocsBot\Storage\ProcessedMessageRepository;
-use B24DocsBot\Storage\TaskLinkRepository;
 use B24DocsBot\Tests\Bitrix\FakeB24Api;
 use B24DocsBot\Tests\Bitrix\FakeFileDownloader;
 use DateTimeImmutable;
@@ -35,25 +33,34 @@ final class MessageHandlerTest extends TestCase
         $db->migrate();
 
         $this->api = new FakeB24Api();
-        $this->api->dialogs[5] = ['crm_entity_type' => 'CONTACT', 'crm_entity_id' => '123'];
-        $this->api->crmEntities['CONTACT:123'] = ['ID' => 123, 'TITLE' => 'Иванов Иван', 'ASSIGNED_BY_ID' => 42];
-
-        $links = new TaskLinkRepository($db->pdo());
+        $this->api->dialogs[5] = ['entity_data_2' => 'LEAD|0|COMPANY|0|CONTACT|123|DEAL|5547'];
 
         $this->processed = new ProcessedMessageRepository($db->pdo());
         $this->pending = new PendingFileRepository($db->pdo());
+        $this->handler = $this->handlerFor($this->api, $db, $this->processed, $this->pending);
 
-        $this->handler = new MessageHandler(
-            $this->processed,
-            $this->pending,
-            new ClientResolver($this->api),
-            new TaskResolver($this->api, $links, 1, 0, 3),
-            new FileAttacher($this->api, new ChecklistWriter($this->api, $links, 'Документы от клиента'), new FakeFileDownloader()),
+        $this->now = new DateTimeImmutable('2026-08-31 12:30:00');
+    }
+
+    private function handlerFor(
+        FakeB24Api $api,
+        Database $db,
+        ProcessedMessageRepository $processed,
+        PendingFileRepository $pending
+    ): MessageHandler {
+        return new MessageHandler(
+            $processed,
+            $pending,
+            new DealResolver($api),
+            new DealDocumentPublisher(
+                $api,
+                new FakeFileDownloader(),
+                new PinnedCommentRepository($db->pdo()),
+                new NullLogger()
+            ),
             new NullLogger(),
             10
         );
-
-        $this->now = new DateTimeImmutable('2026-08-31 12:30:00');
     }
 
     private function event(array $overrides = []): BotEvent
@@ -74,11 +81,14 @@ final class MessageHandlerTest extends TestCase
         return new BotEvent(...$values);
     }
 
-    public function testHappyPathAttachesFileAndMarksMessageProcessed(): void
+    public function testHappyPathPublishesCommentToDealAndMarksMessageProcessed(): void
     {
         $this->handler->handle($this->event(), $this->now);
 
-        self::assertSame([77], $this->api->fetchedDiskFiles);
+        self::assertSame([77], $this->api->fetchedFiles);
+        self::assertCount(1, $this->api->comments);
+        self::assertSame(5547, array_values($this->api->comments)[0][0]);
+        self::assertCount(1, $this->api->pinned);
         self::assertTrue($this->processed->isProcessed(789));
         self::assertCount(0, $this->pending->due($this->now));
     }
@@ -87,7 +97,7 @@ final class MessageHandlerTest extends TestCase
     {
         $this->handler->handle($this->event(['authorIsBot' => true]), $this->now);
 
-        self::assertSame([], $this->api->fetchedDiskFiles);
+        self::assertSame([], $this->api->fetchedFiles);
         self::assertFalse($this->processed->isProcessed(789));
     }
 
@@ -95,14 +105,14 @@ final class MessageHandlerTest extends TestCase
     {
         $this->handler->handle($this->event(['chatEntityType' => '']), $this->now);
 
-        self::assertSame([], $this->api->fetchedDiskFiles);
+        self::assertSame([], $this->api->fetchedFiles);
     }
 
     public function testIgnoresMessagesWithoutFiles(): void
     {
         $this->handler->handle($this->event(['fileIds' => []]), $this->now);
 
-        self::assertSame([], $this->api->fetchedDiskFiles);
+        self::assertSame([], $this->api->fetchedFiles);
         self::assertFalse($this->processed->isProcessed(789));
     }
 
@@ -111,8 +121,8 @@ final class MessageHandlerTest extends TestCase
         $this->handler->handle($this->event(), $this->now);
         $this->handler->handle($this->event(), $this->now);
 
-        self::assertCount(1, $this->api->fetchedDiskFiles);
-        self::assertCount(1, $this->api->addedTasks);
+        self::assertCount(1, $this->api->fetchedFiles);
+        self::assertCount(1, $this->api->comments);
     }
 
     public function testFilesAreQueuedBeforeAnyApiCall(): void
@@ -125,39 +135,39 @@ final class MessageHandlerTest extends TestCase
         self::assertFalse($this->processed->isProcessed(789), 'сообщение не считается обработанным');
     }
 
-    public function testChatWithoutCrmEntityLeavesFileInQueue(): void
+    public function testChatWithoutDealLeavesFileInQueue(): void
     {
-        $this->api->dialogs[5] = ['crm' => 'N'];
+        $this->api->dialogs[5] = ['entity_data_2' => 'LEAD|0|COMPANY|0|CONTACT|123|DEAL|0'];
 
         $this->handler->handle($this->event(), $this->now);
 
-        self::assertSame([], $this->api->fetchedDiskFiles);
+        self::assertSame([], $this->api->fetchedFiles);
         self::assertCount(1, $this->pending->due($this->now->modify('+1 minute')));
         self::assertFalse($this->processed->isProcessed(789));
     }
 
-    public function testCronCanFinishWorkAfterCrmBindingAppears(): void
+    public function testCronCanFinishWorkAfterDealIsBound(): void
     {
         $this->api->dialogs[5] = ['crm' => 'N'];
         $this->handler->handle($this->event(), $this->now);
 
-        $this->api->dialogs[5] = ['crm_entity_type' => 'CONTACT', 'crm_entity_id' => '123'];
+        $this->api->dialogs[5] = ['entity_data_2' => 'DEAL|5547'];
         $later = $this->now->modify('+5 minutes');
 
         foreach ($this->pending->due($later) as $row) {
             self::assertTrue($this->handler->processRow($row, $later));
         }
 
-        self::assertSame([77], $this->api->fetchedDiskFiles);
+        self::assertSame([77], $this->api->fetchedFiles);
         self::assertCount(0, $this->pending->due($later));
     }
 
-    public function testMultipleFilesInOneMessage(): void
+    public function testMultipleFilesInOneMessageGiveOneCommentEach(): void
     {
         $this->handler->handle($this->event(['fileIds' => [77, 78]]), $this->now);
 
-        self::assertSame([77, 78], $this->api->fetchedDiskFiles);
-        self::assertCount(1, $this->api->addedTasks, 'задача создаётся один раз на сообщение');
+        self::assertSame([77, 78], $this->api->fetchedFiles);
+        self::assertCount(2, $this->api->comments);
     }
 
     public function testFailureOfOneFileDoesNotBlockAnother(): void
@@ -172,48 +182,32 @@ final class MessageHandlerTest extends TestCase
                 return parent::getChatFileDownloadUrl($fileId);
             }
         };
-        $api->dialogs[5] = ['crm_entity_type' => 'CONTACT', 'crm_entity_id' => '123'];
+        $api->dialogs[5] = ['entity_data_2' => 'DEAL|5547'];
 
         $db = new Database(':memory:');
         $db->migrate();
-        $links = new TaskLinkRepository($db->pdo());
         $pending = new PendingFileRepository($db->pdo());
         $processed = new ProcessedMessageRepository($db->pdo());
-
-        $handler = new MessageHandler(
-            $processed,
-            $pending,
-            new ClientResolver($api),
-            new TaskResolver($api, $links, 1, 0, 3),
-            new FileAttacher($api, new ChecklistWriter($api, $links, 'Документы'), new FakeFileDownloader()),
-            new NullLogger(),
-            10
-        );
+        $handler = $this->handlerFor($api, $db, $processed, $pending);
 
         $handler->handle($this->event(['fileIds' => [77, 78]]), $this->now);
 
-        self::assertSame([78], $api->fetchedDiskFiles);
+        self::assertSame([78], $api->fetchedFiles);
+        self::assertCount(1, $api->comments);
         self::assertCount(1, $pending->due($this->now->modify('+1 minute')));
         self::assertFalse($processed->isProcessed(789), 'останется незакрытым, пока есть незавершённые файлы');
     }
 
     public function testProcessRowDoesNotTouchBitrixWhenRowAlreadyClaimedByAnotherWorker(): void
     {
-        // Симулируем гонку: вебхук и cron-тик читают одну и ту же строку. Второй воркер
-        // (в данном тесте — захват аренды напрямую) успевает первым.
-        $this->handler->handle($this->event(), $this->now);
-
-        // handle() уже обработал строку до конца (markDone), поэтому вручную создадим ситуацию
-        // "строка есть, но аренда уже занята" на новой независимой строке.
         $rowId = $this->pending->enqueue(999, 5, 88, 'doc.pdf', $this->now);
         $row = $this->pending->newForMessage(999)[0];
 
         self::assertTrue($this->pending->claim($rowId, $this->now, 5), 'первый воркер захватывает строку');
 
-        $savedBefore = count($this->api->fetchedDiskFiles);
         $result = $this->handler->processRow($row, $this->now);
 
         self::assertFalse($result, 'processRow не должен считать строку обработанной, если аренду держит другой воркер');
-        self::assertSame($savedBefore, count($this->api->fetchedDiskFiles), 'Битрикс24 не должен вызываться повторно');
+        self::assertSame([], $this->api->fetchedFiles, 'Битрикс24 не должен вызываться повторно');
     }
 }

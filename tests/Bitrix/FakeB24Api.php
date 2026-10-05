@@ -7,22 +7,18 @@ namespace B24DocsBot\Tests\Bitrix;
 use B24DocsBot\Bitrix\B24Api;
 use B24DocsBot\Bitrix\B24ApiException;
 
-// Намеренно не final: тесты задач 11 и 12 наследуют этот двойник, переопределяя отдельные методы.
+// Намеренно не final: тесты наследуют этот двойник, переопределяя отдельные методы.
 class FakeB24Api implements B24Api
 {
     public array $dialogs = [];              // chatId => массив данных диалога
-    public array $crmEntities = [];          // "CONTACT:123" => массив полей
-    public array $tasks = [];                // taskId => массив полей
-    public array $checklistItems = [];       // taskId => [itemId => поля]
-    public ?int $findTaskResult = null;
-    public array $addedTasks = [];
-    public array $attachedFiles = [];        // taskId => [diskFileId, ...]
-    public array $addedChecklistItems = [];  // [taskId, fields]
-    public array $fetchedDiskFiles = [];     // diskFileId, ...
-    public ?B24ApiException $throwOnGetDiskFile = null;
-    public ?B24ApiException $throwOnAttachFilesToTask = null;
-    public array $uploadedFiles = [];        // [name, content]
+    public array $fetchedFiles = [];         // chatFileId, ...
+    public array $comments = [];             // commentId => [dealId, text, fileName, fileContent]
+    public array $pinned = [];               // [dealId, commentId], в порядке закрепления
+    public array $unpinned = [];             // [dealId, commentId]
     public ?B24ApiException $throwOnDialog = null;
+    public ?B24ApiException $throwOnDownloadUrl = null;
+    public ?B24ApiException $throwOnPin = null;
+    public ?B24ApiException $throwOnUnpin = null;
     private int $nextId = 1000;
 
     public function getOpenLineDialog(int $chatId): array
@@ -34,76 +30,41 @@ class FakeB24Api implements B24Api
         return $this->dialogs[$chatId] ?? [];
     }
 
-    public function getCrmEntity(string $entityType, int $entityId): ?array
-    {
-        return $this->crmEntities["{$entityType}:{$entityId}"] ?? null;
-    }
-
     public function getChatFileDownloadUrl(int $fileId): string
     {
-        $this->fetchedDiskFiles[] = $fileId;
+        $this->fetchedFiles[] = $fileId;
 
-        if ($this->throwOnGetDiskFile !== null) {
-            throw $this->throwOnGetDiskFile;
+        if ($this->throwOnDownloadUrl !== null) {
+            throw $this->throwOnDownloadUrl;
         }
 
         return "https://disk/{$fileId}";
     }
 
-    public function uploadFileToAppStorage(string $name, string $content): array
-    {
-        $this->uploadedFiles[] = [$name, $content];
-        $id = 9000 + count($this->uploadedFiles);
-
-        return ['id' => $id, 'name' => $name];
-    }
-
-    public function getTask(int $taskId): ?array
-    {
-        return $this->tasks[$taskId] ?? null;
-    }
-
-    public function findTaskIdByCrmBinding(string $crmBinding, array $excludeStatuses): ?int
-    {
-        return $this->findTaskResult;
-    }
-
-    public function addTask(array $fields): int
+    public function addDealTimelineComment(int $dealId, string $text, string $fileName, string $fileContent): int
     {
         $id = ++$this->nextId;
-        $this->addedTasks[] = $fields;
-        $this->tasks[$id] = ['id' => $id, 'status' => 2, 'isDeleted' => false];
+        $this->comments[$id] = [$dealId, $text, $fileName, $fileContent];
 
         return $id;
     }
 
-    public function attachFileToTask(int $taskId, int $diskFileId): string
+    public function pinTimelineItem(int $itemId, int $dealId): void
     {
-        if ($this->throwOnAttachFilesToTask !== null) {
-            throw $this->throwOnAttachFilesToTask;
+        if ($this->throwOnPin !== null) {
+            throw $this->throwOnPin;
         }
 
-        $this->attachedFiles[$taskId][] = $diskFileId;
-
-        return "https://portal/attached/{$diskFileId}";
+        $this->pinned[] = [$dealId, $itemId];
     }
 
-    public function addChecklistItem(int $taskId, array $fields): int
+    public function unpinTimelineItem(int $itemId, int $dealId): void
     {
-        $id = ++$this->nextId;
-        $this->addedChecklistItems[] = [$taskId, $fields];
+        if ($this->throwOnUnpin !== null) {
+            throw $this->throwOnUnpin;
+        }
 
-        $this->checklistItems[$taskId][$id] = [
-            'ID' => $id,
-            'TITLE' => (string) ($fields['TITLE'] ?? ''),
-            'PARENT_ID' => (int) ($fields['PARENT_ID'] ?? 0),
-        ];
-
-        return $id;
-    }
-    public function getChecklistItems(int $taskId): array
-    {
-        return array_values($this->checklistItems[$taskId] ?? []);
+        $this->unpinned[] = [$dealId, $itemId];
     }
 
     public function registerBot(array $fields): int

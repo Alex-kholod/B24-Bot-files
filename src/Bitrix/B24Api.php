@@ -16,57 +16,27 @@ interface B24Api
     /** Данные чата открытой линии (imopenlines.dialog.get). */
     public function getOpenLineDialog(int $chatId): array;
 
-    /** Элемент CRM или null, если не найден. Возвращает как минимум ключи ID, TITLE, ASSIGNED_BY_ID. */
-    public function getCrmEntity(string $entityType, int $entityId): ?array;
-
     /**
      * Одноразовая ссылка для скачивания файла чата (imbot.v2.File.download).
      *
      * Метод работает от имени БОТА (проверяются права владения ботом), а не
      * пользователя, чей OAuth-токен использует приложение, — в отличие от
-     * disk.file.get и tasks.task.files.attach, которые требуют права на чтение
-     * конкретного объекта Диска у этого пользователя. На практике файл открытой
-     * линии лежит в личной папке Диска НАЗНАЧЕННОГО ОПЕРАТОРА этого диалога, и
-     * получить туда доступ для произвольного набора операторов/очередей не
-     * получится — поэтому для скачивания используется путь через бота.
+     * disk.file.get, который требует права на чтение объекта Диска: файл открытой
+     * линии лежит в личной папке назначенного оператора диалога.
      */
     public function getChatFileDownloadUrl(int $fileId): string;
 
     /**
-     * Загружает содержимое файла в хранилище приложения на Диске (disk.storage.getforapp +
-     * disk.folder.uploadFile) — там у пользователя приложения гарантированы права на чтение,
-     * в отличие от файлов открытых линий.
-     *
-     * @return array{id: int, name: string} id объекта Диска и итоговое имя файла
+     * Добавляет в таймлайн сделки комментарий с одним файлом (crm.timeline.comment.add)
+     * и возвращает идентификатор комментария.
      */
-    public function uploadFileToAppStorage(string $name, string $content): array;
+    public function addDealTimelineComment(int $dealId, string $text, string $fileName, string $fileContent): int;
 
-    /**
-     * Задача или null, если не найдена.
-     * Реализация обязана нормализовать ответ к трём ключам: int id, int status, bool isDeleted.
-     */
-    public function getTask(int $taskId): ?array;
+    /** Закрепляет запись таймлайна сделки (crm.timeline.item.pin). */
+    public function pinTimelineItem(int $itemId, int $dealId): void;
 
-    /**
-     * Идентификатор самой свежей задачи с указанной CRM-привязкой (например, "C_123"),
-     * исключая задачи в перечисленных статусах.
-     *
-     * @param int[] $excludeStatuses
-     */
-    public function findTaskIdByCrmBinding(string $crmBinding, array $excludeStatuses): ?int;
-
-    public function addTask(array $fields): int;
-
-    /**
-     * Прикрепляет файл Диска к задаче и возвращает постоянную ссылку на него, открывающуюся
-     * по правам доступа к задаче (у файла в хранилище приложения собственной страницы нет).
-     */
-    public function attachFileToTask(int $taskId, int $diskFileId): string;
-
-    public function addChecklistItem(int $taskId, array $fields): int;
-
-    /** @return array<int, array> список пунктов чек-листа задачи */
-    public function getChecklistItems(int $taskId): array;
+    /** Открепляет запись таймлайна сделки (crm.timeline.item.unpin). */
+    public function unpinTimelineItem(int $itemId, int $dealId): void;
 
     /** Регистрирует бота и возвращает его идентификатор. */
     public function registerBot(array $fields): int;

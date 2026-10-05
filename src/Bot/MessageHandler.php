@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace B24DocsBot\Bot;
 
-use B24DocsBot\Service\ClientResolver;
-use B24DocsBot\Service\FileAttacher;
-use B24DocsBot\Service\TaskResolver;
+use B24DocsBot\Service\DealDocumentPublisher;
+use B24DocsBot\Service\DealResolver;
 use B24DocsBot\Storage\PendingFileRepository;
 use B24DocsBot\Storage\ProcessedMessageRepository;
 use DateTimeImmutable;
@@ -18,9 +17,8 @@ final class MessageHandler
     public function __construct(
         private readonly ProcessedMessageRepository $processed,
         private readonly PendingFileRepository $pending,
-        private readonly ClientResolver $clients,
-        private readonly TaskResolver $tasks,
-        private readonly FileAttacher $attacher,
+        private readonly DealResolver $deals,
+        private readonly DealDocumentPublisher $publisher,
         private readonly LoggerInterface $logger,
         private readonly int $maxAttempts,
     ) {
@@ -77,16 +75,16 @@ final class MessageHandler
         }
 
         try {
-            $client = $this->clients->resolve($row['chat_id']);
+            $dealId = $this->deals->resolve($row['chat_id']);
 
-            if ($client === null) {
+            if ($dealId === null) {
                 $this->pending->markFailure(
                     $row['id'],
-                    'Чат ещё не привязан к CRM',
+                    'Чат ещё не привязан к сделке',
                     $this->maxAttempts,
                     $now
                 );
-                $this->logger->info('Чат без CRM-сущности, файл отложен', [
+                $this->logger->info('Чат без сделки, файл отложен', [
                     'chat_id' => $row['chat_id'],
                     'pending_id' => $row['id'],
                 ]);
@@ -94,23 +92,20 @@ final class MessageHandler
                 return false;
             }
 
-            $taskId = $this->tasks->resolve($client);
-
-            $this->attacher->attach(
-                $client->clientKey(),
-                $taskId,
+            $commentId = $this->publisher->publish(
+                $dealId,
                 $row['chat_file_id'],
                 (string) $row['file_name'],
                 $now
             );
 
-            $this->pending->markDone($row['id'], $taskId, $now);
+            $this->pending->markDone($row['id'], $dealId, $now);
 
-            $this->logger->info('Документ добавлен в чек-лист', [
+            $this->logger->info('Документ добавлен в таймлайн сделки', [
                 'pending_id' => $row['id'],
                 'chat_id' => $row['chat_id'],
-                'client_key' => $client->clientKey(),
-                'task_id' => $taskId,
+                'deal_id' => $dealId,
+                'comment_id' => $commentId,
             ]);
 
             return true;

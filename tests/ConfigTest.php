@@ -20,7 +20,6 @@ final class ConfigTest extends TestCase
             'bot_name' => 'Документы',
             'bot_token' => 'token',
             'handler_url' => 'https://example.org/handler.php',
-            'default_responsible_id' => 1,
             'db_path' => '/tmp/bot.sqlite',
             'log_path' => '/tmp/log',
         ];
@@ -31,16 +30,15 @@ final class ConfigTest extends TestCase
         $config = Config::fromArray($this->validValues());
 
         self::assertSame('local.abc', $config->string('client_id'));
-        self::assertSame(1, $config->int('default_responsible_id'));
+        self::assertSame('docs_bot', $config->string('bot_code'));
     }
 
     public function testAppliesDefaults(): void
     {
         $config = Config::fromArray($this->validValues());
 
-        self::assertSame('Документы от клиента', $config->string('checklist_title'));
         self::assertSame(10, $config->int('max_attempts'));
-        self::assertSame(0, $config->int('task_group_id'));
+        self::assertSame('info', $config->string('log_level'));
     }
 
     public function testDefaultsCanBeOverridden(): void

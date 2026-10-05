@@ -105,13 +105,13 @@ final class PendingFileRepository
         return $statement->rowCount() === 1;
     }
 
-    public function markDone(int $id, int $taskId, DateTimeImmutable $now): void
+    public function markDone(int $id, int $dealId, DateTimeImmutable $now): void
     {
         $sql = 'UPDATE pending_files SET status = ?, task_id = ?, last_error = ?, updated_at = ? WHERE id = ?';
 
         $this->pdo->prepare($sql)->execute([
             self::STATUS_DONE,
-            $taskId,
+            $dealId,
             '',
             $now->format('Y-m-d H:i:s'),
             $id,

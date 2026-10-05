@@ -10,14 +10,12 @@ use B24DocsBot\Bitrix\ServiceFactory;
 use B24DocsBot\Bot\EventRouter;
 use B24DocsBot\Bot\MessageHandler;
 use B24DocsBot\Logging\RedactingProcessor;
-use B24DocsBot\Service\ChecklistWriter;
-use B24DocsBot\Service\ClientResolver;
-use B24DocsBot\Service\FileAttacher;
-use B24DocsBot\Service\TaskResolver;
+use B24DocsBot\Service\DealDocumentPublisher;
+use B24DocsBot\Service\DealResolver;
 use B24DocsBot\Storage\Database;
 use B24DocsBot\Storage\PendingFileRepository;
+use B24DocsBot\Storage\PinnedCommentRepository;
 use B24DocsBot\Storage\ProcessedMessageRepository;
-use B24DocsBot\Storage\TaskLinkRepository;
 use B24DocsBot\Storage\TokenRepository;
 use Monolog\Handler\RotatingFileHandler;
 use Monolog\Level;
@@ -30,7 +28,6 @@ final class Application
     private ?TokenRepository $tokens = null;
     private ?PendingFileRepository $pending = null;
     private ?ProcessedMessageRepository $processed = null;
-    private ?TaskLinkRepository $links = null;
     private ?LoggerInterface $logger = null;
     private ?B24Api $api = null;
     private ?MessageHandler $messageHandler = null;
@@ -59,11 +56,6 @@ final class Application
     public function processed(): ProcessedMessageRepository
     {
         return $this->processed ??= new ProcessedMessageRepository($this->database->pdo());
-    }
-
-    public function links(): TaskLinkRepository
-    {
-        return $this->links ??= new TaskLinkRepository($this->database->pdo());
     }
 
     public function logger(): LoggerInterface
@@ -97,26 +89,17 @@ final class Application
     {
         if ($this->messageHandler === null) {
             $api = $this->api();
-            $createdById = (int) ($this->tokens()->find()['installed_by_user_id'] ?? 0);
-
-            $checklistWriter = new ChecklistWriter(
-                $api,
-                $this->links(),
-                $this->config->string('checklist_title')
-            );
 
             $this->messageHandler = new MessageHandler(
                 $this->processed(),
                 $this->pending(),
-                new ClientResolver($api),
-                new TaskResolver(
+                new DealResolver($api),
+                new DealDocumentPublisher(
                     $api,
-                    $this->links(),
-                    $this->config->int('default_responsible_id'),
-                    $this->config->int('task_group_id'),
-                    $createdById > 0 ? $createdById : $this->config->int('default_responsible_id')
+                    new CurlFileDownloader(),
+                    new PinnedCommentRepository($this->database->pdo()),
+                    $this->logger()
                 ),
-                new FileAttacher($api, $checklistWriter, new CurlFileDownloader()),
                 $this->logger(),
                 $this->config->int('max_attempts')
             );

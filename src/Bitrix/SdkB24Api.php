@@ -17,98 +17,27 @@ use Throwable;
  * Реализация порта B24Api поверх bitrix24/b24phpsdk. Единственный класс проекта,
  * которому позволено знать о внутренностях SDK.
  *
- * Что зафиксировано по фактическому коду vendor/bitrix24/b24phpsdk (шаг 1 задачи 7):
+ * Все вызовы идут через `ServiceBuilder::$core->call()`: ответ — `ResponseData::getResult()`
+ * (массив). Скалярный `result` (например идентификатор у `crm.timeline.comment.add`) и `null`
+ * (у `crm.timeline.item.pin`) SDK оборачивает в массив: `999` → `[999]`, поэтому скаляры
+ * читаются как `$result[0]`. Ошибки уровня API превращаются в типизированные исключения SDK,
+ * которые `extractErrorCode()` приводит к кодам `B24ApiException`.
  *
- * - `Bitrix24\SDK\Services\ServiceBuilder::$core` — публичное свойство типа
- *   `Bitrix24\SDK\Core\Contracts\CoreInterface`;
- *   `CoreInterface::call(string $apiMethod, array $parameters = [], ApiVersion $apiVersion = ApiVersion::v1): Response`.
- * - `Bitrix24\SDK\Core\Response\Response::getResponseData(): ResponseData`,
- *   `ResponseData::getResult(): array` — ровно та цепочка, что используется в
- *   официальных примерах документации. Скалярный `result` (например у
- *   `task.checklistitem.add`) SDK оборачивает в массив: `475` → `[475]`,
- *   поэтому такие ответы читаются как `$result[0]`.
- * - Ошибки уровня API преобразуются `Bitrix24\SDK\Core\ApiLevelErrorHandler` в
- *   типизированные наследники `Bitrix24\SDK\Core\Exceptions\BaseException`
- *   (QueryLimitExceededException, OperationTimeLimitExceededException,
- *   TransportException, ItemNotFoundException, MethodNotFoundException и др.),
- *   их и разбирает `extractErrorCode()`.
- *
- * Типизированные сервисы SDK, покрывающие часть наших вызовов, — их сигнатуры
- * взяты как источник истины по параметрам и форме ответа, но вызовы сделаны
- * через `core->call()`, чтобы весь порт был единообразным (см. шаг 3 брифа):
- *
- * - `Services\IMOpenLines\Session\Service\Session::getDialog()` → 'imopenlines.dialog.get', ['CHAT_ID' => …];
- *   результат — объект диалога напрямую.
- * - `Services\IM\Disk\Service\Disk::saveFile(int $fileId)` → 'im.disk.file.save', ['FILE_ID' => …];
- *   результат — ['folder' => …, 'file' => …], идентификатор файла Диска лежит в `file.id`
- *   (см. `Services\IM\Disk\Result\FileSaveResult::fileId()`). Параметра CHAT_ID у метода нет.
- * - `Services\IMBot\Bot\Service\Bot::register()` → 'imbot.v2.Bot.register', ['fields' => …];
- *   результат — ['bot' => …, 'users' => …], идентификатор в `bot.id`
- *   (см. `Services\IMBot\Bot\Result\BotResult`). Регистр имени метода значим и
- *   сохраняется `EndpointUrlFormatter` (метод есть в его списке case-sensitive).
- * - `Services\Task\Service\Task::get()` вызывает 'tasks.task.get' в ApiVersion::v3
- *   (`['id' => …]`, ответ в `result.item`). Мы работаем в версии v1 по умолчанию:
- *   параметр `taskId`, ответ в `result.task`; читаются оба ключа.
- * - `Services\Disk\File\Service\File` покрывает 'disk.file.get' (['id' => …]).
- * - `Services\Task\Checklistitem\Service\Checklistitem` покрывает
- *   'task.checklistitem.add|get|getlist|update' с теми же параметрами TASKID/ITEMID/FIELDS,
- *   но его `add(int $taskId, string $title, int $sort, bool $completed)` не принимает
- *   PARENT_ID и ATTACHMENTS, которые нужны боту, — поэтому вызываем core->call() напрямую.
- *   Его результат `Core\Result\AddedItemResult::getId()` читает `getResult()[0]`, что
- *   подтверждает разбор скалярного ответа `task.checklistitem.add` в `addChecklistItem()`.
+ * Регистр имён методов `imbot.v2.*` значим и сохраняется `EndpointUrlFormatter`.
  */
 final class SdkB24Api implements B24Api
 {
-    private const CRM_GET_METHODS = [
-        'LEAD' => 'crm.lead.get',
-        'CONTACT' => 'crm.contact.get',
-        'COMPANY' => 'crm.company.get',
-        'DEAL' => 'crm.deal.get',
-    ];
+    private const DEAL_OWNER_TYPE_ID = 2;
 
     public function __construct(
         private readonly ServiceBuilder $serviceBuilder,
         private readonly int $botId,
-        private readonly string $portalOrigin,
     ) {
     }
 
     public function getOpenLineDialog(int $chatId): array
     {
         return $this->call('imopenlines.dialog.get', ['CHAT_ID' => $chatId]);
-    }
-
-    public function getCrmEntity(string $entityType, int $entityId): ?array
-    {
-        $method = self::CRM_GET_METHODS[$entityType] ?? null;
-
-        if ($method === null) {
-            return null;
-        }
-
-        try {
-            $entity = $this->call($method, ['id' => $entityId]);
-        } catch (B24ApiException $exception) {
-            if ($exception->isTransient()) {
-                throw $exception;
-            }
-
-            return null;
-        }
-
-        if ($entity === []) {
-            return null;
-        }
-
-        // У лида и сделки заголовок в TITLE, у контакта и компании собираем из имени.
-        if (!isset($entity['TITLE']) || (string) $entity['TITLE'] === '') {
-            $entity['TITLE'] = trim(implode(' ', array_filter([
-                (string) ($entity['LAST_NAME'] ?? ''),
-                (string) ($entity['NAME'] ?? ''),
-            ])));
-        }
-
-        return $entity;
     }
 
     public function getChatFileDownloadUrl(int $fileId): string
@@ -124,127 +53,41 @@ final class SdkB24Api implements B24Api
         return (string) ($result['downloadUrl'] ?? '');
     }
 
-    public function uploadFileToAppStorage(string $name, string $content): array
+    public function addDealTimelineComment(int $dealId, string $text, string $fileName, string $fileContent): int
     {
-        $storage = $this->call('disk.storage.getforapp', []);
-        $rootId = (int) ($storage['ROOT_OBJECT_ID'] ?? 0);
-
-        if ($rootId <= 0) {
-            throw new B24ApiException('Хранилище приложения на Диске недоступно', 'ERROR_UNEXPECTED_ANSWER');
-        }
-
-        $file = $this->call('disk.folder.uploadFile', [
-            'id' => $rootId,
-            'data' => ['NAME' => $name],
-            'fileContent' => [$name, base64_encode($content)],
-            'generateUniqueName' => true,
-        ]);
-
-        $id = (int) ($file['ID'] ?? 0);
-
-        if ($id <= 0) {
-            throw new B24ApiException('Файл не загружен на Диск', 'ERROR_UNEXPECTED_ANSWER');
-        }
-
-        return [
-            'id' => $id,
-            'name' => (string) ($file['NAME'] ?? $name),
-        ];
-    }
-
-    public function getTask(int $taskId): ?array
-    {
-        try {
-            $result = $this->call('tasks.task.get', ['taskId' => $taskId]);
-        } catch (B24ApiException $exception) {
-            if ($exception->isTransient()) {
-                throw $exception;
-            }
-
-            return null;
-        }
-
-        $task = (array) ($result['task'] ?? $result['item'] ?? $result);
-
-        if ($task === []) {
-            return null;
-        }
-
-        return [
-            'id' => (int) ($task['id'] ?? $task['ID'] ?? 0),
-            'status' => (int) ($task['status'] ?? $task['STATUS'] ?? 0),
-            'isDeleted' => ((string) ($task['zombie'] ?? $task['ZOMBIE'] ?? 'N')) === 'Y',
-        ];
-    }
-
-    public function findTaskIdByCrmBinding(string $crmBinding, array $excludeStatuses): ?int
-    {
-        $result = $this->call('tasks.task.list', [
-            'filter' => ['UF_CRM_TASK' => $crmBinding, '!STATUS' => array_values($excludeStatuses), 'ZOMBIE' => 'N'],
-            'select' => ['ID'],
-            'order' => ['ID' => 'DESC'],
-        ]);
-
-        $tasks = (array) ($result['tasks'] ?? $result['items'] ?? []);
-        $first = $tasks[0] ?? null;
-
-        if (!is_array($first)) {
-            return null;
-        }
-
-        $id = (int) ($first['id'] ?? $first['ID'] ?? 0);
-
-        return $id > 0 ? $id : null;
-    }
-
-    public function addTask(array $fields): int
-    {
-        $result = $this->call('tasks.task.add', ['fields' => $fields]);
-        $task = (array) ($result['task'] ?? $result['item'] ?? []);
-
-        $id = (int) ($task['id'] ?? $task['ID'] ?? 0);
-
-        if ($id <= 0) {
-            throw new B24ApiException('Задача не создана', 'ERROR_UNEXPECTED_ANSWER');
-        }
-
-        return $id;
-    }
-
-    public function attachFileToTask(int $taskId, int $diskFileId): string
-    {
-        // tasks.task.file.attach (REST 3.0) на части порталов не существует ("api method
-        // not found"), поэтому используется старый tasks.task.files.attach: один файл за
-        // вызов (параметр fileId), в ответе — attachmentId прикрепления.
-        $result = $this->call('tasks.task.files.attach', ['taskId' => $taskId, 'fileId' => $diskFileId]);
-        $attachmentId = (int) ($result['attachmentId'] ?? 0);
-
-        if ($attachmentId <= 0) {
-            throw new B24ApiException('Файл не прикреплён к задаче', 'ERROR_UNEXPECTED_ANSWER');
-        }
-
-        // У файла в хранилище приложения нет собственной страницы (DETAIL_URL пуст), а
-        // прикрепление даёт постоянную ссылку, права на которую определяются доступом к задаче.
-        return sprintf('%s/bitrix/tools/disk/uf.php?attachedId=%d&action=download&ncc=1', $this->portalOrigin, $attachmentId);
-    }
-
-    public function addChecklistItem(int $taskId, array $fields): int
-    {
-        $result = $this->call('task.checklistitem.add', ['TASKID' => $taskId, 'FIELDS' => $fields]);
+        $result = $this->call('crm.timeline.comment.add', ['fields' => [
+            'ENTITY_ID' => $dealId,
+            'ENTITY_TYPE' => 'deal',
+            'COMMENT' => $text,
+            'FILES' => [[$fileName, base64_encode($fileContent)]],
+        ]]);
 
         // Ответ метода — скалярный идентификатор, SDK оборачивает его в массив.
-        $id = (int) ($result[0] ?? $result['ID'] ?? 0);
+        $id = (int) ($result[0] ?? 0);
 
         if ($id <= 0) {
-            throw new B24ApiException('Пункт чек-листа не создан', 'ERROR_UNEXPECTED_ANSWER');
+            throw new B24ApiException('Комментарий в таймлайн не добавлен', 'ERROR_UNEXPECTED_ANSWER');
         }
 
         return $id;
     }
 
-    public function getChecklistItems(int $taskId): array
+    public function pinTimelineItem(int $itemId, int $dealId): void
     {
-        return array_values($this->call('task.checklistitem.getlist', ['TASKID' => $taskId]));
+        $this->call('crm.timeline.item.pin', [
+            'id' => $itemId,
+            'ownerTypeId' => self::DEAL_OWNER_TYPE_ID,
+            'ownerId' => $dealId,
+        ]);
+    }
+
+    public function unpinTimelineItem(int $itemId, int $dealId): void
+    {
+        $this->call('crm.timeline.item.unpin', [
+            'id' => $itemId,
+            'ownerTypeId' => self::DEAL_OWNER_TYPE_ID,
+            'ownerId' => $dealId,
+        ]);
     }
 
     public function registerBot(array $fields): int
